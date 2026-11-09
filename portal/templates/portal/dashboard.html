@@ -1,0 +1,38 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Your workspaces · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="dash-head">
+  <p class="eyebrow mono">Dashboard</p>
+  <h1>Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}.</h1>
+  <p class="lead">{% if workspaces %}Open a workspace to chat, or manage its documents and settings.{% else %}You don't have a workspace yet.{% endif %}</p>
+</section>
+
+<section class="ws-grid" aria-label="Your workspaces">
+  {% for w in workspaces %}
+    <article class="card ws">
+      <div class="ws-top">
+        <span class="avatar" aria-hidden="true">{{ w.tenant.chatbot_name|slice:":1"|upper }}</span>
+        <div class="ws-meta">
+          <h2>{{ w.tenant.name }}</h2>
+          <p class="muted small">{{ w.tenant.chatbot_name }} · {{ w.role }} · {{ w.tenant.document_count }} document{{ w.tenant.document_count|pluralize }}</p>
+        </div>
+      </div>
+      <div class="ws-actions">
+        <a class="btn primary sm" href="{% url 'chat:home' tenant_slug=w.tenant.slug %}">Open chat</a>
+        {% if w.admin %}<a class="btn ghost sm" href="{% url 'rag:home' tenant_slug=w.tenant.slug %}">Manage</a>{% endif %}
+      </div>
+    </article>
+  {% endfor %}
+
+  {% if slots is None or slots > 0 %}
+    <a class="card ws create" href="{% url 'portal:create' %}">
+      <span class="plus" aria-hidden="true">+</span>
+      <h2>Create {% if workspaces %}a{% else %}your free{% endif %} chatbot</h2>
+      <p class="muted small">{% if slots is None %}As a superuser you can create as many as you need.{% else %}Free: {{ plan.documents }} documents, {{ plan.types }}, website widget included.{% endif %}</p>
+    </a>
+  {% elif not workspaces %}
+    <article class="card ws empty"><p class="muted">Ask an administrator to add you to a workspace.</p></article>
+  {% endif %}
+</section>
+{% if slots == 0 %}<p class="muted small center">You've created your free chatbot. Need more? Contact us about a larger plan.</p>{% endif %}
+{% endblock %}

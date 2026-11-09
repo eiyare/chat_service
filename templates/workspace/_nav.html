@@ -1,0 +1,6 @@
+{% if request.is_workspace_admin %}
+<nav class="seg" aria-label="Workspace sections">
+  <a href="{% url 'chat:home' tenant_slug=tenant.slug %}"{% if active == "chat" %} class="on" aria-current="page"{% endif %}>Chat</a>
+  <a href="{% url 'rag:home' tenant_slug=tenant.slug %}"{% if active == "admin" %} class="on" aria-current="page"{% endif %}>Admin</a>
+</nav>
+{% endif %}

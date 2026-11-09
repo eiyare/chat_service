@@ -1,0 +1,8 @@
+{% if user.is_authenticated %}
+<div class="account">
+  <span class="account-name" title="Signed in">{{ user.get_full_name|default:user.get_username }}</span>
+  <form method="post" action="{% url 'logout' %}" class="account-logout">
+    {% csrf_token %}<button type="submit">Sign out</button>
+  </form>
+</div>
+{% endif %}

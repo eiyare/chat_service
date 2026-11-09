@@ -1,0 +1,23 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'portal/site.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% block layout %}
+  <header class="topbar">
+    <a class="brand" href="{% url 'portal:home' %}">{{ SITE_NAME }}</a>
+    {% block topbar_extra %}{% endblock %}
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">&copy; {% now "Y" %} {{ SITE_NAME }}</footer>
+{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

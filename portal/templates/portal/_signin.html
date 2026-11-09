@@ -1,0 +1,12 @@
+<form class="card signin" method="post" action="{% url 'login' %}" novalidate>
+  {% csrf_token %}
+  <h2>Sign in</h2>
+  {% if login_form.non_field_errors %}<p class="error" role="alert">Your username and password didn't match. Please try again.</p>{% endif %}
+  <label for="id_username">Username</label>
+  <input type="text" name="username" id="id_username" autocomplete="username" required value="{{ login_form.username.value|default:'' }}">
+  <label for="id_password">Password</label>
+  <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+  <input type="hidden" name="next" value="{{ next|default:'/' }}">
+  <button class="btn primary block" type="submit">Sign in</button>
+  {% if plan.signup %}<p class="muted small">New here? <a href="{% url 'portal:signup' %}">Create a free account</a></p>{% endif %}
+</form>

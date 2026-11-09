@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{% if conversation %}{{ conversation.title }} · {% endif %}{{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'chat/chat.css' %}">{% endblock %}
+{% block body_class %}chat-app{% endblock %}
+
+{% block layout %}
+<div class="shell" id="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <a class="ws-name" href="{% url 'chat:home' tenant_slug=tenant.slug %}" title="{{ tenant.name }}">{{ tenant.name }}</a>
+      <button class="icon-btn only-mobile" id="close-sidebar" type="button" aria-label="Close sidebar">&times;</button>
+    </div>
+    {% include "workspace/_nav.html" with active="chat" %}
+    <a class="new-chat" href="{% url 'chat:home' tenant_slug=tenant.slug %}">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      New chat
+    </a>
+    <nav class="convo-list" id="convo-list" aria-label="Conversations">
+      {% for c in conversations %}
+        <div class="convo{% if conversation and c.pk == conversation.pk %} active{% endif %}" data-id="{{ c.pk }}">
+          <a href="{% url 'chat:conversation' tenant_slug=tenant.slug pk=c.pk %}">{{ c.title }}</a>
+          <button class="convo-del" type="button" data-id="{{ c.pk }}" aria-label="Delete conversation" title="Delete">&times;</button>
+        </div>
+      {% empty %}
+        <p class="convo-empty" id="convo-empty">No conversations yet</p>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-foot"><a href="{% url 'portal:home' %}">{{ SITE_NAME }}</a>{% include "workspace/_account.html" %}</div>
+  </aside>
+
+  <section class="main">
+    <header class="main-head">
+      <button class="icon-btn only-mobile" id="open-sidebar" type="button" aria-label="Open sidebar">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <label class="model-pick">
+        <span class="sr-only">Model</span>
+        <select id="model-select" disabled><option>Loading models…</option></select>
+      </label>
+      <span class="status" id="status" role="status"></span>
+    </header>
+
+    <div class="thread" id="thread" aria-live="polite">
+      <div class="empty-state" id="empty-state" {% if messages_data %}hidden{% endif %}>
+        <h1>Hi, I'm {{ tenant.chatbot_name }}</h1>
+        <p>Ask me about the <strong>{{ tenant.name }}</strong> knowledge base. I answer only from its documents, with sources.</p>
+        {% if kb_status == "no_documents" %}
+          <p class="empty-note">No documents yet. {% if request.is_workspace_admin %}<a href="{% url 'rag:home' tenant_slug=tenant.slug %}">Upload some in Admin</a>{% else %}Ask a workspace admin to upload some{% endif %} to start asking questions.</p>
+        {% elif kb_status == "no_embedding_model" %}
+          <p class="empty-note">Document search is unavailable: no embedding model is enabled. An administrator needs to enable one (Django admin &rsaquo; LLM models).</p>
+        {% elif kb_status == "needs_reindex" %}
+          <p class="empty-note">This workspace's documents were indexed with a different embedding model and need reindexing before they can be searched.</p>
+        {% endif %}
+      </div>
+      <div class="messages" id="messages"></div>
+    </div>
+
+    <form class="composer" id="composer" autocomplete="off">
+      {% csrf_token %}
+      <div class="composer-box">
+        <textarea id="prompt" rows="1" placeholder="Ask {{ tenant.chatbot_name }} about your documents…" aria-label="Message" maxlength="{{ chat_config.maxChars }}"></textarea>
+        <button class="send" id="send" type="submit" aria-label="Send" disabled>
+          <svg class="i-send" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="i-stop" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <p class="hint">Enter to send · Shift+Enter for a new line</p>
+    </form>
+  </section>
+</div>
+<div class="scrim only-mobile" id="scrim" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+{{ chat_config|json_script:"chat-config" }}
+{{ messages_data|json_script:"chat-messages" }}
+<script src="{% static 'chat/markdown.js' %}"></script>
+<script src="{% static 'chat/chat.js' %}"></script>
+{% endblock %}

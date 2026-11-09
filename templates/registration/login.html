@@ -1,0 +1,9 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Sign in · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="narrow">
+  <h1>Welcome back</h1>
+  <p class="lead">Sign in to open your workspaces.</p>
+  {% with login_form=form %}{% include "portal/_signin.html" %}{% endwith %}
+</section>
+{% endblock %}

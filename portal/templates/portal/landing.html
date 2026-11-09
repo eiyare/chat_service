@@ -1,0 +1,73 @@
+{% extends "portal/_layout.html" %}
+{% block title %}{{ SITE_NAME }} · AI assistants that answer from your documents{% endblock %}
+{% block main %}
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow mono">AI document assistant</p>
+    <h1>Your documents,<br><span class="glow">answering questions.</span></h1>
+    <p class="lead">Upload your files and get a named chatbot that answers only from them, with sources, for your team and on your website.</p>
+    <div class="cta">
+      {% if plan.signup %}<a class="btn primary lg" href="{% url 'portal:signup' %}">Create your free chatbot</a>{% endif %}
+      <a class="btn ghost lg" href="#signin">Sign in</a>
+    </div>
+    <p class="muted small">Free plan: {{ plan.chatbots }} chatbot · {{ plan.documents }} documents · {{ plan.types }} up to {{ plan.file_mb }} MB</p>
+  </div>
+  <div class="hero-demo card" aria-label="Example conversation">
+    <div class="demo-head"><span class="dot"></span><span class="mono">Tosin · Acme Support</span></div>
+    <div class="demo-msg user">Wetin be una refund policy?</div>
+    <div class="demo-msg bot">Refund dey within 14 days of purchase if you get di receipt [1]. After dat, na store credit [2].
+      <div class="demo-src"><span>refund-policy.pdf</span><span>terms.pdf</span></div>
+    </div>
+    <div class="demo-msg user">How long does delivery take to Lagos?</div>
+    <div class="demo-msg bot">Delivery to Lagos takes 2 to 3 working days [1].<div class="demo-src"><span>shipping.pdf</span></div></div>
+  </div>
+</section>
+
+<section id="features" class="features" aria-label="Why {{ SITE_NAME }}">
+  <article class="card feature">
+    <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.7-7 9-4-1.3-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+    <h3>Grounded, not guessing</h3>
+    <p>Answers come only from your documents and FAQs, with the source cited. If it isn't in there, it says so.</p>
+  </article>
+  <article class="card feature">
+    <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg></span>
+    <h3>On your website in one line</h3>
+    <p>Paste one snippet and visitors can chat with your assistant. You decide which sites may use it.</p>
+  </article>
+  <article class="card feature">
+    <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10h8M8 13h5"/></svg></span>
+    <h3>Speaks like your customers</h3>
+    <p>Give it a name and a voice. It understands English and Nigerian Pidgin, and answers in kind.</p>
+  </article>
+  <article class="card feature">
+    <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-3"/></svg></span>
+    <h3>See what works</h3>
+    <p>Answer rates, response times, token use and the questions your documents can't answer yet.</p>
+  </article>
+</section>
+
+<section class="steps" aria-label="How it works">
+  <div class="step"><span class="num mono">01</span><h3>Create</h3><p>Sign up and name your chatbot. Free, in under a minute.</p></div>
+  <div class="step"><span class="num mono">02</span><h3>Upload</h3><p>Add your {{ plan.types }} documents. They're indexed for search automatically.</p></div>
+  <div class="step"><span class="num mono">03</span><h3>Share</h3><p>Invite your team, or embed the chat on your website.</p></div>
+</section>
+
+<section id="signin" class="join">
+  <div class="join-copy">
+    <h2>Your workspaces, in one place.</h2>
+    <p class="lead">Sign in to open your chatbots, manage documents and see how they perform.</p>
+    {% if plan.signup %}
+      <div class="plan card">
+        <p class="eyebrow mono">Free plan</p>
+        <ul>
+          <li>{{ plan.chatbots }} chatbot with its own name</li>
+          <li>{{ plan.documents }} documents, {{ plan.types }} up to {{ plan.file_mb }} MB each</li>
+          <li>Website widget and performance report</li>
+        </ul>
+        <a class="btn primary" href="{% url 'portal:signup' %}">Create your free chatbot</a>
+      </div>
+    {% endif %}
+  </div>
+  {% include "portal/_signin.html" %}
+</section>
+{% endblock %}
