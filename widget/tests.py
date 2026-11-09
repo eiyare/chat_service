@@ -87,7 +87,7 @@ class EmbedTabTests(TestCase):
         self.assertNotEqual(Widget.objects.get(tenant=self.t).public_key, old)
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     return [[1.0, 0.0] for _ in texts]
 
 

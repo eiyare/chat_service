@@ -176,7 +176,8 @@ class LLMModelAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("provider", "name", "kind", "label", "enabled", "is_default", "sort_order")}),
         ("Embedding models only (optional)", {
-            "fields": ("query_prefix", "document_prefix", "min_score", "faq_min_score", "faq_context_min_score"),
+            "fields": ("query_prefix", "document_prefix", "query_params", "document_params",
+                       "min_score", "strong_score", "faq_min_score", "faq_context_min_score"),
             "description": "Similarity scales differ between embedding models: calibrate the cut-offs per model. "
                            "Blank uses the platform defaults.",
         }),
@@ -206,7 +207,8 @@ class LLMModelAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         embedding_changed = obj.kind == LLMModel.Kind.EMBEDDING and (
-            not change or {"provider", "name", "enabled", "document_prefix", "kind"} & set(form.changed_data)
+            not change or {"provider", "name", "enabled", "document_prefix", "document_params", "kind"}
+            & set(form.changed_data)
         )
         super().save_model(request, obj, form, change)
         if embedding_changed:

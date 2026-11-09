@@ -165,12 +165,29 @@ class LLMModel(models.Model):
         help_text="Embedding models only, optional: prefix added to document chunks (e.g. 'search_document: '). "
                   "Changing it requires reindexing documents.",
     )
+    # Some embedding models need to know whether they embed a search query or a document
+    # (e.g. Cohere: {"input_type": "search_query"} / {"input_type": "search_document"}).
+    query_params = models.JSONField(
+        "Query options", default=dict, blank=True, validators=[_json_object],
+        help_text="Embedding models only, optional: extra LiteLLM arguments when embedding search questions, "
+                  "e.g. {\"input_type\": \"search_query\"} for Cohere.",
+    )
+    document_params = models.JSONField(
+        "Document options", default=dict, blank=True, validators=[_json_object],
+        help_text="Embedding models only, optional: extra LiteLLM arguments when embedding document chunks, "
+                  "e.g. {\"input_type\": \"search_document\"} for Cohere. Changing them requires rebuilding documents.",
+    )
     # Relevance cut-offs: similarity scales differ between embedding models, so they
     # are calibrated per model. Blank uses RAG_MIN_SCORE / RAG_FAQ_MIN_SCORE /
     # RAG_FAQ_CONTEXT_MIN_SCORE from settings.
     min_score = models.FloatField(
         "Document relevance cut-off", null=True, blank=True,
         help_text="Embedding models only: minimum similarity for a document passage to count as relevant.",
+    )
+    strong_score = models.FloatField(
+        "Strong match cut-off", null=True, blank=True,
+        help_text="Embedding models only: passages at least this similar are used without the key-word check. "
+                  "Blank = document relevance cut-off x Strong match factor (Platform settings).",
     )
     faq_min_score = models.FloatField(
         "FAQ match cut-off", null=True, blank=True,
@@ -223,7 +240,9 @@ class LLMModel(models.Model):
             errors["is_default"] = "Only chat models can be the default."
         if self.kind == self.Kind.CHAT and (self.query_prefix or self.document_prefix):
             errors["query_prefix"] = "Prefixes apply to embedding models only."
-        for field in ("min_score", "faq_min_score", "faq_context_min_score"):
+        if self.kind == self.Kind.CHAT and (self.query_params or self.document_params):
+            errors["query_params"] = "Query and document options apply to embedding models only."
+        for field in ("min_score", "strong_score", "faq_min_score", "faq_context_min_score"):
             value = getattr(self, field)
             if value is not None and self.kind == self.Kind.CHAT:
                 errors[field] = "Cut-offs apply to embedding models only."

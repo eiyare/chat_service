@@ -56,7 +56,7 @@ class ResolutionTests(TestCase):
 
 @override_settings(LLM_CHAT_MODELS=["p/chat"], LLM_DEFAULT_CHAT_MODEL="p/chat", LLM_EMBED_MODEL="p/embed",
                    RAG_QUERY_PREFIX="", RAG_DOCUMENT_PREFIX="", LLM_CONFIG_CACHE_SECONDS=0)
-@mock.patch("llm.embed", mock.AsyncMock(side_effect=lambda texts: [[0.0, 1.0] for _ in texts]))
+@mock.patch("llm.embed", mock.AsyncMock(side_effect=lambda texts, purpose="document": [[0.0, 1.0] for _ in texts]))
 class BehaviourTests(TestCase):
     def setUp(self):
         llm.invalidate()

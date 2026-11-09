@@ -28,8 +28,11 @@ def negated(text: str) -> bool:
 
 
 def signature(faq: FAQ, config) -> str:
+    import json
+
     digest = hashlib.sha1("\n".join(faq.phrasings()).encode()).hexdigest()[:12]
-    return f"{config.embed_model}|{config.query_prefix}|{digest}"
+    params = json.dumps(config.embed_query_params, sort_keys=True) if config.embed_query_params else ""
+    return f"{config.embed_model}|{config.query_prefix}|{digest}" + (f"|{params}" if params else "")
 
 
 @dataclass
@@ -50,7 +53,7 @@ async def index(faqs, config) -> list[FAQ]:
     stale = [f for f in faqs if f.embed_signature != signature(f, config) or f.matrix() is None]
     if stale:
         texts = [config.query_prefix + p for f in stale for p in f.phrasings()]
-        vectors = await llm.embed(texts)  # raises llm.LLMError
+        vectors = await llm.embed(texts, purpose="query")  # FAQ phrasings are compared with questions
         i = 0
         for f in stale:
             n = len(f.phrasings())

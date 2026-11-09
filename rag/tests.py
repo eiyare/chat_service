@@ -18,12 +18,12 @@ from .models import Chunk, Document
 EMBED_CALLS = []
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     EMBED_CALLS.append(list(texts))
     return [[float(len(t)), 1.0, 0.5] for t in texts]
 
 
-async def failing_embed(texts):
+async def failing_embed(texts, purpose="document"):
     raise llm.LLMError("Model not found: prov/embed")
 
 
@@ -245,7 +245,7 @@ class AdminPageTests(MediaRootMixin, TestCase):
 QUERY_VECTORS = {}
 
 
-async def query_embed(texts):
+async def query_embed(texts, purpose="document"):
     return [QUERY_VECTORS[t] for t in texts]
 
 
@@ -656,3 +656,53 @@ class DocumentChunkManagementTests(MediaRootMixin, TestCase):
 
         other = Tenant.objects.create(name="Other", slug="other")
         self.assertEqual(self.client.post(f"/t/other/admin/documents/{ok.pk}/rebuild/").status_code, 404)
+
+
+class SectionChunkingTests(SimpleTestCase):
+    DOC = ("Acme Ltd\nCompany profile with a short introduction about who we are and what we do every day.\n"
+           "1. Opening Hours\nMonday - Friday: 08:00 - 18:00\nSaturday: 10:00 - 14:00 and closed on public holidays "
+           "for staff rest and stock taking across all our branches.\n"
+           "2. Leadership\n1. Ada Obi - CEO\n2. Femi Ade - CFO\nOur leaders bring decades of experience in retail, "
+           "logistics and customer service across West Africa and beyond, building strong teams.\n"
+           "## Prices\nStarter 10 USD, Growth 50 USD, Enterprise on request with volume discounts available.")
+
+    def test_sections_split_at_headings_and_short_items_stay_together(self):
+        from .chunking import split_sections
+        sections = split_sections(self.DOC)
+        self.assertEqual([h for h, _ in sections], ["", "1. Opening Hours", "2. Leadership", "Prices"])
+        leadership = dict(sections)["2. Leadership"]
+        self.assertIn("1. Ada Obi - CEO", leadership)  # numbered list items aren't sections
+        self.assertIn("2. Femi Ade - CFO", leadership)
+
+    def test_chunks_never_span_sections(self):
+        from .chunking import chunk_sections
+        for heading, piece in chunk_sections(self.DOC, 120, 20):
+            if heading == "1. Opening Hours":
+                self.assertNotIn("Leadership", piece)
+
+
+@override_settings(RAG_CHUNK_SIZE=200, RAG_CHUNK_OVERLAP=20, LLM_EMBED_MODEL="prov/embed", RAG_DOCUMENT_PREFIX="",
+                   RAG_QUERY_PREFIX="", RAG_MAX_DOCUMENTS=10, RAG_SECTION_CHUNKING=True)
+class SectionChunkingProcessTests(MediaRootMixin, TestCase):
+    def test_chunks_get_section_and_title_context(self):
+        seen = []
+
+        async def embed(texts, purpose="document"):
+            seen.extend(texts)
+            return [[1.0, 0.0] for _ in texts]
+
+        Tenant.objects.create(name="Acme", slug="acme")
+        with mock.patch("llm.embed", embed):
+            self.client.post("/t/acme/admin/documents/upload/",
+                             {"files": [SimpleUploadedFile("Acme Profile.txt", SectionChunkingTests.DOC.encode())]})
+        hours = Chunk.objects.get(section="1. Opening Hours")
+        self.assertTrue(hours.text.startswith("1. Opening Hours\nMonday - Friday"))  # the model sees the heading
+        self.assertTrue(any(t.startswith("Acme Profile\n1. Opening Hours\n") for t in seen))  # embedding gets the title
+
+    @override_settings(RAG_SECTION_CHUNKING=False)
+    def test_can_be_switched_off(self):
+        Tenant.objects.create(name="Acme", slug="acme")
+        with mock.patch("llm.embed", mock.AsyncMock(side_effect=lambda texts, purpose="document": [[1.0, 0.0] for _ in texts])):
+            self.client.post("/t/acme/admin/documents/upload/",
+                             {"files": [SimpleUploadedFile("p.txt", SectionChunkingTests.DOC.encode())]})
+        self.assertFalse(Chunk.objects.exclude(section="").exists())

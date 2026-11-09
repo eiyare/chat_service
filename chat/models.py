@@ -73,6 +73,7 @@ class Message(models.Model):
     retrieval_ms = models.PositiveIntegerField(null=True, blank=True, help_text="Embedding + search time")
     top_score = models.FloatField(null=True, blank=True, help_text="Similarity of the best passage")
     passage_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    search_query = models.CharField(max_length=500, blank=True, help_text="Question as rewritten for search")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

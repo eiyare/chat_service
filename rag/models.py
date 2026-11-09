@@ -52,6 +52,7 @@ class Chunk(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="chunks")
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="chunks")
     index = models.PositiveIntegerField()
+    section = models.CharField(max_length=300, blank=True, help_text="Heading of the document section")
     text = models.TextField()
     embedding = models.BinaryField(help_text="float32 vector")
     dimensions = models.PositiveIntegerField()
@@ -78,7 +79,11 @@ class Chunk(models.Model):
 
 def embed_signature(config) -> str:
     """Identifies how chunks are embedded; a change means documents must be reindexed."""
-    return f"{config.embed_model}|{config.document_prefix}"
+    import json
+
+    signature = f"{config.embed_model}|{config.document_prefix}"
+    params = getattr(config, "embed_document_params", None)
+    return f"{signature}|{json.dumps(params, sort_keys=True)}" if params else signature
 
 
 def current_embed_signature() -> str:

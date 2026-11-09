@@ -293,3 +293,43 @@ class EmbeddingCutoffTests(Base):
             LLMModel(provider=ollama, name="chat", kind="chat", min_score=0.3).full_clean()
         with self.assertRaisesMessage(ValidationError, "between -1 and 1"):
             LLMModel(provider=ollama, name="e", kind="embedding", min_score=3).full_clean()
+
+
+@override_settings(**ENV)
+class EmbeddingPurposeOptionsTests(Base):
+    def test_query_and_document_options_are_sent_by_purpose(self):
+        from types import SimpleNamespace
+        from rag.models import embed_signature
+
+        bedrock_ = bedrock()
+        LLMModel.objects.create(provider=bedrock_, name="cohere.embed-multilingual-v3", kind="embedding",
+                                query_params={"input_type": "search_query"},
+                                document_params={"input_type": "search_document"})
+        calls = []
+
+        async def aembedding(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(data=[{"index": 0, "embedding": [1.0]}])
+
+        from asgiref.sync import async_to_sync
+        with mock.patch("litellm.aembedding", aembedding):
+            async_to_sync(llm.embed)(["q"], purpose="query")
+            async_to_sync(llm.embed)(["d"])
+        self.assertEqual([c["input_type"] for c in calls], ["search_query", "search_document"])
+        self.assertEqual(calls[0]["model"], "bedrock/cohere.embed-multilingual-v3")
+        self.assertTrue(embed_signature(llm.get_config()).endswith('|{"input_type": "search_document"}'))
+
+    def test_options_only_on_embedding_models(self):
+        with self.assertRaisesMessage(ValidationError, "embedding models only"):
+            LLMModel(provider=bedrock(), name="chat", kind="chat", query_params={"x": 1}).full_clean()
+
+
+@override_settings(**ENV, RAG_MIN_SCORE=0.5, RAG_CONFIDENT_FACTOR=2.0)
+class StrongCutoffTests(Base):
+    def test_per_model_strong_cutoff_or_factor(self):
+        config = llm.get_config()
+        self.assertEqual(config.strong_cutoff, 1.0)  # 0.5 x 2.0
+        ollama = Provider.objects.create(name="ollama", provider_type="ollama")
+        LLMModel.objects.create(provider=ollama, name="e", kind="embedding", min_score=0.33, strong_score=0.38)
+        config = llm.get_config()
+        self.assertEqual((config.doc_cutoff, config.strong_cutoff), (0.33, 0.38))

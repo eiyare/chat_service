@@ -70,7 +70,7 @@ async def has_documents(tenant) -> bool:
 async def embed_queries(queries: list[str]) -> list[list[float]]:
     """Embed questions the way search() does (with the query prefix)."""
     config = await llm.aget_config()
-    return await llm.embed([config.query_prefix + q for q in queries])
+    return await llm.embed([config.query_prefix + q for q in queries], purpose="query")
 
 
 async def search(tenant, queries: list[str], top_k: int | None = None,
@@ -100,7 +100,7 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
         return []
 
     if query_vectors is None:
-        query_vectors = await llm.embed([config.query_prefix + q for q in queries])
+        query_vectors = await llm.embed([config.query_prefix + q for q in queries], purpose="query")
     q = np.asarray(query_vectors, dtype=np.float32)
     dims = q.shape[1]
     rows = [r for r in rows if r[2] == dims]  # skip vectors from a different model
@@ -142,7 +142,15 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
         if cid in chunks
     ]
     if cfg.min_term_overlap > 0:
-        passages = _lexical_filter(queries, passages, cfg.min_term_overlap)
+        # Strong matches are trusted as they are; the key-word check guards the rest
+        # (it catches questions that only resemble a passage in shape).
+        if min_score == config.doc_cutoff:
+            strong_at = config.strong_cutoff  # per embedding model, or cut-off x platform factor
+        else:  # an explicit min_score (diagnostics/tests)
+            strong_at = min_score * cfg.confident_factor if min_score > 0 else float("inf")
+        strong = [p for p in passages if p.score >= strong_at]
+        others = [p for p in passages if p.score < strong_at]
+        passages = strong + (_lexical_filter(queries, others, cfg.min_term_overlap) if others else [])
     results.extend(passages[:top_k])
     return results
 

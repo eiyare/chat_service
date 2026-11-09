@@ -38,13 +38,15 @@ class PidginUnitTests(SimpleTestCase):
 
     def test_model_is_told_to_answer_in_pidgin(self):
         t = Tenant(name="Acme", chatbot_name="Tosin")
-        self.assertIn("If it is written in Nigerian Pidgin English, answer in clear Nigerian Pidgin.", grounding_prompt(conf.static(t)))
+        # Pidgin is requested per question, not with a general rule (small models over-apply it).
+        self.assertNotIn("Pidgin", grounding_prompt(conf.static(t)))
         self.assertIn("answer in Nigerian Pidgin English", grounded_question("Wetin be X?", [], "pcm"))
         self.assertNotIn("Pidgin", grounded_question("What is X?", [], "en"))
-        self.assertIn(persona.no_answer(conf.static(t), "pcm"), grounding_prompt(conf.static(t), persona.no_answer(conf.static(t), "pcm")))
+        strict = conf.static(t, grounding_mode="strict")
+        self.assertIn(persona.no_answer(strict, "pcm"), grounding_prompt(strict, persona.no_answer(strict, "pcm")))
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     return [[1.0, 0.0] if "quadratic" in t.lower() else [0.0, 1.0] for t in texts]
 
 
@@ -90,7 +92,8 @@ class PidginChatTests(TestCase):
         events, reply = await self.ask("Abeg, wetin be quadratic equation?")
         self.assertEqual(len(STREAMS), 1)
         self.assertIn("answer in Nigerian Pidgin English", STREAMS[0][-1]["content"])
-        self.assertIn("I no see dat one inside dis workspace documents.", STREAMS[0][0]["content"])
+        # Helpful mode (default) has no fixed sentence in the prompt; the Pidgin "not found"
+        # reply is still recognised as declined when a model gives it.
         self.assertEqual(reply.outcome, Message.Outcome.DECLINED)  # the Pidgin "not found" is recognised too
 
 

@@ -15,7 +15,7 @@ from django.utils import timezone
 import llm
 from siteconfig import conf
 
-from .chunking import chunk_text
+from .chunking import chunk_sections, chunk_text
 from .extract import ExtractionError, extract_text
 from .models import Chunk, Document, IndexingRun, embed_signature
 
@@ -116,7 +116,15 @@ async def process(document: Document, data: bytes | None = None,
         text = await sync_to_async(extract_text)(data, document.extension)
         run.characters = len(text)
         run.extract_ms = int((time.monotonic() - started) * 1000)
-        pieces = chunk_text(text, cfg.chunk_size, cfg.chunk_overlap)
+        if cfg.section_chunking:
+            sectioned = chunk_sections(text, cfg.chunk_size, cfg.chunk_overlap)
+        else:
+            sectioned = [("", piece) for piece in chunk_text(text, cfg.chunk_size, cfg.chunk_overlap)]
+        # Passage text carries its section heading (for the model and the key-word check);
+        # the embedding also gets the document title, so every chunk says what it is about.
+        pieces = [f"{heading}\n{piece}" if heading else piece for heading, piece in sectioned]
+        title = PurePath(document.name).stem
+        embed_inputs = [f"{title}\n{piece}" if cfg.section_chunking else piece for piece in pieces]
         if not pieces:
             raise ExtractionError("No readable text found (scanned PDFs need OCR first)")
 
@@ -127,7 +135,7 @@ async def process(document: Document, data: bytes | None = None,
         for i in range(0, len(pieces), batch):
             if i and not await Document.objects.filter(pk=document.pk).aexists():
                 raise Cancelled()
-            inputs = [prefix + piece for piece in pieces[i : i + batch]]
+            inputs = [prefix + piece for piece in embed_inputs[i : i + batch]]
             vectors.extend(await llm.embed(inputs))
         run.embed_ms = int((time.monotonic() - embed_started) * 1000)
 
@@ -138,7 +146,7 @@ async def process(document: Document, data: bytes | None = None,
             await Chunk.objects.abulk_create(
                 Chunk(
                     tenant_id=document.tenant_id, document=document, index=i, text=piece,
-                    embedding=Chunk.pack(vec), dimensions=len(vec),
+                    section=sectioned[i][0][:300], embedding=Chunk.pack(vec), dimensions=len(vec),
                 )
                 for i, (piece, vec) in enumerate(zip(pieces, vectors))
             )

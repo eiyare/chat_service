@@ -9,7 +9,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var thread = $("thread"), list = $("messages"), emptyState = $("empty-state");
   var form = $("composer"), prompt = $("prompt"), sendBtn = $("send");
-  var modelSelect = $("model-select"), statusEl = $("status");
+  var modelSelect = $("model-select"), statusEl = $("status"), modelLabel = $("model-label");
+  var isTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
   var convoList = $("convo-list");
 
   var state = { conversationId: config.conversationId, controller: null, modelsReady: false };
@@ -18,6 +19,22 @@
 
   function storageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function storageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+
+  // Size the app to the visible viewport, so the composer stays above the
+  // browser toolbar and the on-screen keyboard (iOS doesn't resize for it).
+  function fitViewport() {
+    var vv = window.visualViewport;
+    if (!vv || Math.abs(vv.scale - 1) > 0.01) return;  // leave pinch-zoom alone
+    var stick = nearBottom();
+    var root = document.documentElement.style;
+    root.setProperty("--vv-height", Math.round(vv.height) + "px");
+    root.setProperty("--vv-top", Math.round(vv.offsetTop) + "px");
+    if (stick) scrollToBottom(true);
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", fitViewport);
+    window.visualViewport.addEventListener("scroll", fitViewport);
+  }
 
   function nearBottom() { return thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120; }
   function scrollToBottom(force) { if (force || nearBottom()) thread.scrollTop = thread.scrollHeight; }
@@ -134,6 +151,7 @@
     modelSelect.innerHTML = "";
     if (!config.models.length) {
       modelSelect.appendChild(el("option", null, "No models"));
+      syncModelLabel();
       setStatus("No chat model available. An administrator needs to enable one (Django admin > LLM models).", true);
       return;
     }
@@ -149,16 +167,22 @@
     }
     modelSelect.disabled = false;
     state.modelsReady = true;
+    syncModelLabel();
     updateSendButton();
   }
 
-  modelSelect.addEventListener("change", function () { storageSet(MODEL_KEY, modelSelect.value); });
+  function syncModelLabel() {
+    var opt = modelSelect.options[modelSelect.selectedIndex];
+    modelLabel.textContent = opt ? opt.textContent : "";
+  }
+
+  modelSelect.addEventListener("change", function () { storageSet(MODEL_KEY, modelSelect.value); syncModelLabel(); });
 
   /* ---------- composer ---------- */
 
   function autosize() {
     prompt.style.height = "auto";
-    prompt.style.height = Math.min(prompt.scrollHeight, 220) + "px";
+    prompt.style.height = Math.min(prompt.scrollHeight, isTouch ? 140 : 220) + "px";
   }
 
   function updateSendButton() {
@@ -170,7 +194,7 @@
 
   prompt.addEventListener("input", function () { autosize(); updateSendButton(); });
   prompt.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !isTouch) {
       e.preventDefault();
       if (!state.controller) form.requestSubmit();
     }
@@ -338,7 +362,7 @@
       if (!content && view.row.classList.contains("pending")) view.row.classList.remove("pending");
       state.controller = null;
       updateSendButton();
-      prompt.focus();
+      if (!isTouch) prompt.focus();
     });
   }
 
@@ -348,5 +372,8 @@
   scrollToBottom(true);
   loadModels();
   autosize();
-  prompt.focus();
+  fitViewport();
+  if (!isTouch) prompt.focus();
+  prompt.addEventListener("focus", function () { setTimeout(function () { scrollToBottom(true); }, 300); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggleSidebar(false); });
 })();

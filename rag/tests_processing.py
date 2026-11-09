@@ -18,7 +18,7 @@ from rag.models import Chunk, Document, IndexingRun
 from tenants.models import Tenant
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     return [[1.0, 0.0, 0.5] for _ in texts]
 
 
@@ -70,7 +70,7 @@ class ProcessingRunTests(TestCase):
         doc = self.upload(words=5)
         calls = []
 
-        async def embed_then_delete(texts):
+        async def embed_then_delete(texts, purpose="document"):
             calls.append(len(texts))
             if len(calls) == 1:
                 await Document.objects.filter(pk=doc.pk).adelete()

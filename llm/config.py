@@ -32,8 +32,12 @@ class Config:
     document_prefix: str = ""
     # Relevance cut-offs for the active embedding model (None = settings default)
     min_score: float | None = None
+    strong_score: float | None = None
     faq_min_score: float | None = None
     faq_context_min_score: float | None = None
+    # Extra arguments for the active embedding model, by purpose
+    embed_query_params: dict = field(default_factory=dict)
+    embed_document_params: dict = field(default_factory=dict)
     # Admin models: model ID -> (LiteLLM model string, LiteLLM kwargs)
     routes: dict = field(default_factory=dict)
     # Environment models: provider prefix -> kwargs, and per-model params
@@ -49,6 +53,15 @@ class Config:
     def doc_cutoff(self) -> float:
         from siteconfig import conf
         return conf.get().min_score if self.min_score is None else self.min_score
+
+    @property
+    def strong_cutoff(self) -> float:
+        """Similarity at which passages skip the key-word check."""
+        from siteconfig import conf
+        if self.strong_score is not None:
+            return self.strong_score
+        cutoff = self.doc_cutoff
+        return cutoff * conf.get().confident_factor if cutoff > 0 else float("inf")
 
     @property
     def faq_cutoff(self) -> float:
@@ -102,7 +115,10 @@ def build(db_providers=(), db_models=()) -> Config:
 
     if embed_rows:
         active = next((m for m in embed_rows if offered(m)), None)
-        cutoffs = {f: getattr(active, f, None) for f in ("min_score", "faq_min_score", "faq_context_min_score")}
+        cutoffs = {f: getattr(active, f, None)
+                   for f in ("min_score", "strong_score", "faq_min_score", "faq_context_min_score")}
+        cutoffs["embed_query_params"] = dict(getattr(active, "query_params", None) or {})
+        cutoffs["embed_document_params"] = dict(getattr(active, "document_params", None) or {})
         embed_model = active.identifier if active else ""
         query_prefix = active.query_prefix if active else ""
         document_prefix = active.document_prefix if active else ""

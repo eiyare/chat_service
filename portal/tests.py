@@ -106,7 +106,7 @@ class ChatbotNameTests(TestCase):
 
     def test_default_name_is_tosin_and_used_everywhere(self):
         self.assertEqual(self.t.chatbot_name, "Tosin")
-        self.assertTrue(grounding_prompt(conf.static(self.t)).startswith("You are Tosin, the document assistant for the Acme workspace."))
+        self.assertTrue(grounding_prompt(conf.static(self.t)).startswith("You are Tosin, the assistant for Acme."))
         chat = self.client.get("/t/acme/chat/")
         self.assertContains(chat, "Hi, I'm Tosin")
         self.assertContains(chat, "Ask Tosin about your documents")

@@ -7,7 +7,16 @@
   :root { --sidebar-bg: #17171a; --hover: rgba(255, 255, 255, .06); --user-bubble: #26262b; --code-bg: #19191c; }
 }
 
-body.chat-app { height: 100vh; height: 100dvh; overflow: hidden; display: block; }
+/* The app fills exactly the visible viewport. site.css gives body min-height: 100vh,
+   which on iOS is taller than the visible area and pushed the composer under the
+   browser toolbar. --vv-* come from visualViewport (chat.js) so the composer also
+   stays above the on-screen keyboard. */
+html:has(body.chat-app) { height: 100%; overflow: hidden; }
+body.chat-app {
+  position: fixed; left: 0; right: 0; top: var(--vv-top, 0px);
+  height: 100%; height: var(--vv-height, 100dvh); min-height: 0;
+  overflow: hidden; display: block; overscroll-behavior: none;
+}
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .only-mobile { display: none; }
 
@@ -60,6 +69,8 @@ body.chat-app { height: 100vh; height: 100dvh; overflow: hidden; display: block;
 }
 .model-pick select:hover:not(:disabled) { background-color: var(--hover); }
 .model-pick select option { color: initial; }
+.head-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bot-name, .model-label { display: none; }
 .status { font-size: 13px; color: var(--muted); }
 .status.error { color: var(--error); }
 
@@ -69,7 +80,7 @@ body.chat-app { height: 100vh; height: 100dvh; overflow: hidden; display: block;
 }
 .icon-btn:hover { background: var(--hover); }
 
-.thread { flex: 1; overflow-y: auto; padding: 8px 20px 24px; scroll-behavior: smooth; }
+.thread { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 8px 20px 24px; }
 .messages, .empty-state { max-width: 760px; margin: 0 auto; }
 .empty-state { text-align: center; padding-top: 18vh; }
 .empty-state h1 { font-size: 1.75rem; font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; }
@@ -165,7 +176,8 @@ body.chat-app { height: 100vh; height: 100dvh; overflow: hidden; display: block;
 .hint { max-width: 760px; margin: 6px auto 0; text-align: center; font-size: 12px; color: var(--muted); }
 
 /* ---------- mobile ---------- */
-@media (max-width: 760px) {
+/* phones in portrait, and phones turned to landscape (short + touch) */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .only-mobile { display: inline-grid; }
   .shell { grid-template-columns: 1fr; }
   .sidebar {
@@ -175,8 +187,48 @@ body.chat-app { height: 100vh; height: 100dvh; overflow: hidden; display: block;
   .shell.sidebar-open .sidebar { transform: none; }
   .scrim { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: 10; }
   .scrim[hidden] { display: none; }
-  .main-head, .thread { padding-left: 16px; padding-right: 16px; }
-  .composer { padding: 0 12px 10px; }
-  .msg.user .bubble { max-width: 90%; }
+  .sidebar { padding-top: max(14px, env(safe-area-inset-top)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+
+  /* app bar: menu · bot name / model · new chat */
+  .main-head {
+    position: relative; z-index: 5; flex: none; display: grid; grid-template-columns: 40px 1fr 40px;
+    gap: 4px; min-height: 52px; padding: env(safe-area-inset-top) 8px 0;
+    padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right));
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .icon-btn { width: 40px; height: 40px; }
+  .head-title { flex-direction: column; justify-content: center; gap: 0; text-align: center; line-height: 1.2; }
+  .bot-name { display: block; font-weight: 650; font-size: 16px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-pick { position: relative; display: inline-flex; max-width: 100%; }
+  .model-label { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-label::after { content: " \25BE"; }
+  /* the real select sits invisibly over the label: 16px so iOS doesn't zoom on tap */
+  .model-pick select { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; padding: 0; }
+  .status { display: none; }
+  .status.error {
+    display: block; position: absolute; top: 100%; left: 0; right: 0; padding: 6px 16px;
+    font-size: 12px; text-align: center; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+
+  .thread { padding: 4px max(14px, env(safe-area-inset-right)) 16px max(14px, env(safe-area-inset-left)); }
+  .empty-state { padding-top: 12vh; padding-left: 8px; padding-right: 8px; }
+  .empty-state h1 { font-size: 1.5rem; }
+  .msg { margin: 16px 0; }
+  .msg.user .bubble { max-width: 85%; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 6px; }
+
+  /* composer pinned to the bottom, clear of the home indicator */
+  .composer {
+    flex: none; padding: 8px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+  .composer-box { border-radius: 22px; padding: 4px 4px 4px 14px; box-shadow: none; background: var(--bg); }
+  .composer textarea { font-size: 16px; max-height: 140px; }
   .hint { display: none; }
+
+  /* no hover on touch: keep delete visible */
+  .convo-del { opacity: .6; }
+  .convo a { padding-top: 11px; padding-bottom: 11px; }
+}
+@media (max-width: 760px) and (prefers-color-scheme: dark), (max-height: 500px) and (pointer: coarse) and (prefers-color-scheme: dark) {
+  .msg.user .bubble { background: var(--user-bubble); color: var(--text); }
 }

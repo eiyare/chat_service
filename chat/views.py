@@ -22,6 +22,7 @@ from siteconfig import conf
 from tenants.decorators import tenant_required
 
 from . import persona
+from . import rewrite as rewrite_lib
 from . import usage as usage_lib
 from .models import Conversation, Message
 
@@ -207,11 +208,13 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     no_answer = persona.no_answer(cfg, lang)
     search = persona.search_text(text, name)
     queries = [search]
+    previous_text = None
     if conversation is not None and not small_talk:
         previous = await conversation.messages.filter(role=Message.Role.USER).alast()
         if previous:
             # Follow-ups ("and the second one?") need the earlier question for context.
-            queries.append(f"{persona.search_text(previous.content, name)}\n{search}")
+            previous_text = persona.search_text(previous.content, name)
+            queries.append(f"{previous_text}\n{search}")
     kb_status = await retrieval.kb_status(tenant)
     faqs = await faq.enabled_for(tenant)
     passages = retrieval.Results()
@@ -221,19 +224,28 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
 
     # 1. Same question as an FAQ (ignoring case/punctuation): answer it, no embedding needed.
     faq_hit = None if small_talk else faq.direct_match(search, None, faqs)
+    search_query, rewrite_tokens = search, (0, 0)
+    if (not small_talk and faq_hit is None and kb_status == retrieval.KB.READY and cfg.rewrite_queries
+            and not (await usage_lib.current(tenant)).exhausted):
+        # Turn the question into a plain-English search query (Pidgin, paraphrases, follow-ups).
+        rewritten, *rewrite_tokens = await rewrite_lib.rewrite(model, search, previous_text, cfg)
+        if rewritten:
+            search_query = rewritten
+            queries = [rewritten] + queries
+    original = queries.index(search)  # the user's own wording, for FAQ matching
     if (not small_talk and faq_hit is None and (faqs or kb_status == retrieval.KB.READY)
             and llm_config.embed_model):
         try:
-            # The question is embedded once, for FAQ matching and document search alike.
+            # The questions are embedded once, for FAQ matching and document search alike.
             query_vectors = await retrieval.embed_queries(queries)
             indexed = await faq.index(faqs, llm_config) if faqs else []
             # 2. Close FAQ match (wording and meaning): answer it without the model.
-            faq_hit = faq.direct_match(search, query_vectors[0], indexed, llm_config.faq_cutoff)
+            faq_hit = faq.direct_match(search, query_vectors[original], indexed, llm_config.faq_cutoff)
             if faq_hit is None:
                 # 3. Document search, plus close FAQs as extra context for the model.
                 if kb_status == retrieval.KB.READY:
                     passages = await retrieval.search(tenant, queries, query_vectors=query_vectors)
-                faq_context = faq.context_passages(query_vectors[0], indexed, llm_config.faq_context_cutoff)
+                faq_context = faq.context_passages(query_vectors[original], indexed, llm_config.faq_context_cutoff)
                 if faq_context:
                     best = passages.best_score
                     passages = retrieval.Results(faq_context + list(passages))
@@ -283,10 +295,13 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             conf.fill(cfg.no_answer_message, cfg).strip(), no_answer.strip()
         ):
             outcome = Message.Outcome.DECLINED  # passages were given, but the model found no answer in them
+        if any(rewrite_tokens):  # the rewriting call counts toward usage too
+            prompt_tokens = (prompt_tokens or 0) + rewrite_tokens[0]
+            completion_tokens = (completion_tokens or 0) + rewrite_tokens[1]
         msg = await Message.objects.acreate(
             conversation=conversation, role=Message.Role.ASSISTANT, content=content,
             thinking=thinking, model=reply_model, sources=sources if content else [],
-            response_ms=int((time.monotonic() - started) * 1000),
+            response_ms=int((time.monotonic() - started) * 1000), search_query=search_query[:500],
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             outcome=outcome, retrieval_ms=retrieval_ms, passage_count=passage_count, top_score=top_score,
         )

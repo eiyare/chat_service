@@ -29,7 +29,7 @@ def _vec(text):
     return [0.0, 0.0, 1.0]
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     return [_vec(t) for t in texts]
 
 

@@ -27,7 +27,7 @@ def vector_for(text):
     return OFF_TOPIC
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     EMBED_INPUTS.append(list(texts))
     return [vector_for(t) for t in texts]
 
@@ -43,7 +43,7 @@ async def failing_stream(model, messages, temperature=None, max_tokens=None):
     raise llm.LLMError("Cannot reach the model provider")
 
 
-async def failing_embed(texts):
+async def failing_embed(texts, purpose="document"):
     raise llm.LLMError("Cannot reach the model provider")
 
 

@@ -103,7 +103,7 @@ class ComputeTests(TestCase):
 LEAVE, OFF = [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     return [LEAVE if "leave" in t.lower() else OFF for t in texts]
 
 

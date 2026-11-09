@@ -87,7 +87,15 @@ SPECS = [
          "Most earlier messages sent to the model as context.", 0, 200),
     Spec("max_message_chars", INT, ANSWERING, "Max question length", _s("CHAT_MAX_MESSAGE_CHARS"), True,
          "Characters.", 1, 100000),
+    Spec("rewrite_queries", BOOL, ANSWERING, "Rewrite questions for search", _s("RAG_REWRITE_QUERIES"), True,
+         "Before searching, the chat model turns the question into a plain-English search query (handles Pidgin, "
+         "paraphrases like \"what time do you close\", and follow-ups). One small extra model call per question."),
     # --- Search and FAQs (global) -------------------------------------------------------------
+    Spec("rewrite_prompt", TEXT, SEARCH, "Question rewriting instructions", _s("RAG_REWRITE_PROMPT")),
+    Spec("confident_factor", FLOAT, SEARCH, "Strong match factor", _s("RAG_CONFIDENT_FACTOR"),
+         help="Passages scoring at least this many times the relevance cut-off skip the key-word check "
+              "(used when the embedding model has no Strong match cut-off of its own).",
+         min=1, max=10),
     Spec("min_term_overlap", FLOAT, SEARCH, "Key-word coverage required", _s("RAG_MIN_TERM_OVERLAP"),
          help="Share of the question's key words the passages must contain before the model is called "
               "(0 turns the check off).", min=0, max=1),
@@ -107,6 +115,11 @@ SPECS = [
          help="Characters shared by neighbouring chunks; must be smaller than the chunk size.", min=0, max=10000),
     Spec("embed_batch_size", INT, DOCUMENTS, "Embedding batch size", _s("RAG_EMBED_BATCH_SIZE"),
          help="Chunks sent per embedding request.", min=1, max=512),
+    Spec("section_chunking", BOOL, DOCUMENTS, "Section-aware chunking", _s("RAG_SECTION_CHUNKING"),
+         help="Split documents at their headings (\"1. Opening Hours\") so chunks don't mix topics, and add the "
+              "document title and section to each chunk. Applies to documents (re)built afterwards. Works best for "
+              "documents with clearly numbered or Markdown headings; tables of contents and numbered lists can be "
+              "mistaken for headings."),
     # --- Workspace defaults (global; each workspace can set its own on its page) -----------------
     Spec("default_max_upload_mb", INT, DEFAULTS, "Max file size (MB)", _s("RAG_MAX_UPLOAD_MB"), min=1, max=1000),
     Spec("default_max_documents", INT, DEFAULTS, "Max documents per workspace", _s("RAG_MAX_DOCUMENTS"), min=0),

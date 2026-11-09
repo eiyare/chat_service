@@ -243,6 +243,16 @@ rewordings as phrasings to answer more questions directly. FAQ phrasings are
 embedded when saved (or on first use) and re-embedded automatically when
 their wording or the embedding settings change.
 
+## Document processing options
+
+*Platform settings > Document processing*: chunk size (600) and overlap (100),
+embedding batch size, and **section-aware chunking** (off by default), which
+splits documents at numbered or Markdown headings and adds the document title
+and section heading to each chunk. It suits documents with clean headings;
+in PDF text, tables of contents, numbered lists and exercises can look like
+headings, so test it on your documents before enabling it. Rebuild documents
+after changing these.
+
 ## Grounded chat
 
 The chat answers exclusively from the workspace's documents:
@@ -270,8 +280,14 @@ Django admin (*LLM models* > an embedding model > *Document relevance
 cut-off*, *FAQ match cut-off*, *FAQ context cut-off*); blank uses
 `RAG_MIN_SCORE`, `RAG_FAQ_MIN_SCORE`, `RAG_FAQ_CONTEXT_MIN_SCORE`. Calibrate by
 measuring the best-passage similarity of on-topic and off-topic questions and
-picking a value between them. Measured values: `nomic-embed-text` 0.52 / 0.80
-/ 0.75; Bedrock `amazon.titan-embed-text-v2:0` 0.20 / 0.55 / 0.50.
+picking a value between them. Each embedding model also has a *Strong match
+cut-off* (passages this similar skip the key-word check; blank = cut-off x
+*Strong match factor*) and *Query options* / *Document options* (extra LiteLLM
+arguments by purpose, e.g. Cohere's `{"input_type": "search_query"}` and
+`{"input_type": "search_document"}`). Measured values (document / strong / FAQ
+match / FAQ context): `nomic-embed-text` 0.52 / - / 0.80 / 0.75; Bedrock
+`amazon.titan-embed-text-v2:0` 0.20 / - / 0.55 / 0.50; Bedrock
+`cohere.embed-multilingual-v3` 0.33 / 0.38 / 0.70 / 0.60.
 
 If you change `LLM_EMBED_MODEL` or `RAG_DOCUMENT_PREFIX`, existing chunks no
 longer match and are excluded from search (the admin page flags them). Rebuild

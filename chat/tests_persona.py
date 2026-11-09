@@ -54,7 +54,7 @@ LEAVE = [1.0, 0.0, 0.0]
 EMBEDS, STREAMS = [], []
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     EMBEDS.append(list(texts))
     return [LEAVE if ("leave" in t.lower() or "vacation" in t.lower()) else [0.0, 0.0, 1.0] for t in texts]
 
@@ -117,7 +117,8 @@ class PersonaChatTests(TestCase):
 
     def test_persona_rule_in_system_prompt(self):
         prompt = grounding_prompt(conf.static(self.t))
-        self.assertIn("Your name is Tosin. Messages that address Tosin are speaking to you", prompt)
+        self.assertTrue(prompt.startswith("You are Tosin, the assistant for Acme."))
+        self.assertTrue(prompt.rstrip().endswith("Your name is Tosin."))
 
     async def test_small_talk_counts_with_faq_in_report(self):
         await self.ask("Thanks Tosin")

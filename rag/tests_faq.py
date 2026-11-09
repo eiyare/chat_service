@@ -28,7 +28,7 @@ def vec(text):
     return [0.1, 0.1, 0.1, 0.1]
 
 
-async def fake_embed(texts):
+async def fake_embed(texts, purpose="document"):
     EMBED_CALLS.append(list(texts))
     return [vec(t) for t in texts]
 

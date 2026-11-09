@@ -141,8 +141,11 @@ async def stream_chat(
     }
 
 
-async def embed(texts: list[str]) -> list[list[float]]:
-    """Embed texts with the configured embedding model (no prefixes added here)."""
+async def embed(texts: list[str], purpose: str = "document") -> list[list[float]]:
+    """Embed texts with the configured embedding model (no prefixes added here).
+
+    purpose "query" or "document" adds that model's Query / Document options.
+    """
     if not texts:
         return []
     config = await aget_config()
@@ -150,6 +153,7 @@ async def embed(texts: list[str]) -> list[list[float]]:
     if not model:
         raise LLMError("No embedding model configured (set one in the admin or LLM_EMBED_MODEL)")
     litellm_model, params = resolve(model, config)
+    params = {**params, **(config.embed_query_params if purpose == "query" else config.embed_document_params)}
     try:
         response = await litellm.aembedding(model=litellm_model, input=texts, **params)
     except Exception as exc:

@@ -1,8 +1,12 @@
 """Test helpers. Every page requires login, so tests sign in by default."""
 from django.contrib.auth import get_user_model
-from django.test import TestCase as DjangoTestCase
+from django.test import TestCase as DjangoTestCase, override_settings
 
 
+# Question rewriting (an extra model call) and the strong-match bypass are off by
+# default so tests see one model call and the key-word check; tests for those
+# features turn them on.
+@override_settings(RAG_REWRITE_QUERIES=False, RAG_CONFIDENT_FACTOR=10, RAG_SECTION_CHUNKING=False)
 class TestCase(DjangoTestCase):
     """A TestCase whose ``client`` and ``async_client`` are signed in as a superuser
     (``self.signed_in_user``), who can open every workspace. Tests about access
