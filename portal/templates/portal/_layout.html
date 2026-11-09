@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'portal/portal.css' %}">{% endblock %}
+{% block body_class %}portal{% endblock %}
+{% block layout %}
+<div class="bg" aria-hidden="true"><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="grid"></div></div>
+<header class="nav">
+  <a class="logo" href="{% url 'portal:home' %}"><span class="logo-mark" aria-hidden="true"></span>{{ SITE_NAME }}</a>
+  <nav class="nav-links" aria-label="Main">
+    {% block nav %}
+      {% if user.is_authenticated %}
+        {% if user.is_staff %}<a href="{% url 'admin:index' %}" class="nav-link">Platform admin</a>{% endif %}
+        <span class="nav-user" title="Signed in">{{ user.get_full_name|default:user.get_username }}</span>
+        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn ghost sm" type="submit">Sign out</button></form>
+      {% else %}
+        <a href="{% url 'portal:home' %}#signin" class="nav-link">Sign in</a>
+        {% if plan.signup %}<a href="{% url 'portal:signup' %}" class="btn primary sm">Get started</a>{% endif %}
+      {% endif %}
+    {% endblock %}
+  </nav>
+</header>
+<main class="wrap">
+  {% if messages %}<ul class="notice" role="status">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>{% endif %}
+  {% block main %}{% endblock %}
+</main>
+<footer class="foot"><span>&copy; {% now "Y" %} {{ SITE_NAME }}</span><span class="mono">Grounded AI assistants for your documents</span></footer>
+{% endblock %}

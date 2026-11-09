@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Embed · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+<header class="ws-bar">
+  <a class="ws-title" href="{% url 'chat:home' tenant_slug=tenant.slug %}">{{ tenant.name }}</a>
+  {% include "workspace/_nav.html" with active="admin" %}
+  {% include "workspace/_account.html" %}
+</header>
+
+<main class="ws-main embed">
+  <div class="page-head">
+    <h1>Knowledge base</h1>
+    <p>Put this workspace's assistant on your website. Visitors get the same grounded answers as the workspace chat.</p>
+  </div>
+  {% include "rag/_tabs.html" with tab="embed" %}
+
+  {% if messages %}
+    <ul class="flash" role="status">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  <section aria-labelledby="status-h">
+    <h2 id="status-h" class="section-h">Status
+      {% if widget.enabled %}<span class="pill ready">Live</span>{% else %}<span class="pill">Off</span>{% endif %}
+    </h2>
+    <p class="embed-note">
+      {% if widget.enabled %}
+        The widget can be embedded on: {{ widget.domains|join:", " }}.
+        {{ widget_questions }} question{{ widget_questions|pluralize }} asked through it so far.
+        The chat button in the corner of this page is a live preview.
+      {% else %}
+        The widget is off. Add the websites that may embed it, turn it on and save.
+      {% endif %}
+    </p>
+  </section>
+
+  <section aria-labelledby="snippet-h">
+    <h2 id="snippet-h" class="section-h">Embed code</h2>
+    <p class="embed-note">Paste this just before <code>&lt;/body&gt;</code> on every page that should show the chat.</p>
+    <div class="snippet">
+      <textarea id="snippet" readonly rows="2" aria-label="Embed code" spellcheck="false">{{ snippet }}</textarea>
+      <button type="button" class="btn" id="copy-snippet">Copy</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="settings-h">
+    <h2 id="settings-h" class="section-h">Settings</h2>
+    <form method="post" class="card-form" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="field{% if field.errors %} has-error{% endif %}{% if field.name == 'enabled' %} check{% endif %}">
+          {% if field.name == "enabled" %}
+            {{ field }} <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {% else %}
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+          {% endif %}
+          {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+          {% for e in field.errors %}<p class="field-error">{{ e }}</p>{% endfor %}
+        </div>
+      {% endfor %}
+      {% for e in form.non_field_errors %}<p class="field-error">{{ e }}</p>{% endfor %}
+      <div class="form-actions"><button type="submit" class="btn">Save</button></div>
+    </form>
+  </section>
+
+  <section aria-labelledby="key-h">
+    <h2 id="key-h" class="section-h">Key</h2>
+    <p class="embed-note">The key in the embed code identifies this workspace's widget. Generate a new one if it's being misused; the current embed code stops working immediately.</p>
+    <form method="post" data-confirm="Generate a new key? The current embed code will stop working until you replace it.">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="regenerate">
+      <button type="submit" class="link-btn danger">Generate a new key</button>
+    </form>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var btn = document.getElementById("copy-snippet"), area = document.getElementById("snippet");
+    btn.addEventListener("click", function () {
+      area.select();
+      (navigator.clipboard ? navigator.clipboard.writeText(area.value) : Promise.reject()).catch(function () {
+        document.execCommand("copy");
+      }).then(function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1500); });
+    });
+    document.querySelectorAll("form[data-confirm]").forEach(function (f) {
+      f.addEventListener("submit", function (e) { if (!confirm(f.dataset.confirm)) e.preventDefault(); });
+    });
+  })();
+</script>
+{% if widget.enabled %}<script src="{{ script_url }}" data-key="{{ widget.public_key }}" async></script>{% endif %}
+{% endblock %}

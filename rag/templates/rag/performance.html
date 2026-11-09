@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Performance · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}"><link rel="stylesheet" href="{% static 'rag/performance.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+<header class="ws-bar">
+  <a class="ws-title" href="{% url 'chat:home' tenant_slug=tenant.slug %}">{{ tenant.name }}</a>
+  {% include "workspace/_nav.html" with active="admin" %}
+  {% include "workspace/_account.html" %}
+</header>
+
+<main class="ws-main perf viz-root">
+  <div class="page-head">
+    <h1>Knowledge base</h1>
+    <p>How well the assistant finds answers in this workspace's documents, and what it costs.</p>
+  </div>
+  {% include "rag/_tabs.html" with tab="performance" %}
+
+  <section class="card allowance" aria-labelledby="allowance-h">
+    <div class="allowance-head">
+      <h2 id="allowance-h">Token allowance</h2>
+      {% if allowance.state == "critical" %}
+        <span class="status critical"><span aria-hidden="true">&#9888;</span> Limit reached</span>
+      {% elif allowance.state == "warning" %}
+        <span class="status warning"><span aria-hidden="true">&#9888;</span> Almost used</span>
+      {% endif %}
+    </div>
+    {% if allowance.limit %}
+      <p class="allowance-figure"><strong>{{ allowance.used }}</strong> of {{ allowance.limit }} tokens used this {{ allowance.period }} ({{ allowance.percent }}%)</p>
+      <div class="meter {{ allowance.state }}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ allowance.percent }}" aria-label="Token allowance used">
+        <span style="width: {{ allowance.percent }}%"></span>
+      </div>
+      <p class="note">Resets {{ allowance.resets_at|date:"DATETIME_FORMAT" }}.{% if allowance.max_output %} Answers are capped at {{ allowance.max_output }} output tokens.{% endif %}</p>
+    {% else %}
+      <p class="allowance-figure"><strong>{{ allowance.used }}</strong> tokens used this {{ allowance.period }} · no allowance set</p>
+      <p class="note">{% if allowance.max_output %}Answers are capped at {{ allowance.max_output }} output tokens. {% endif %}Limits are set per workspace in the platform admin.</p>
+    {% endif %}
+  </section>
+
+  <nav class="period" aria-label="Period">
+    {% for p in periods %}
+      <a href="?days={{ p.days }}"{% if p.active %} class="on" aria-current="true"{% endif %}>{{ p.label }}</a>
+    {% endfor %}
+  </nav>
+
+  <section class="kpis" aria-label="Key figures, {{ period_label|lower }}">
+    {% for t in tiles %}
+      <div class="tile">
+        <span class="tile-label">{{ t.label }}</span>
+        <span class="tile-value">{{ t.value }}</span>
+        <span class="tile-sub">{{ t.sub }}</span>
+      </div>
+    {% endfor %}
+  </section>
+
+  {% if not data.kpis.questions %}
+    <p class="empty">No questions in this period yet. Figures appear here once people use the chat.</p>
+  {% else %}
+
+  <section class="card" aria-labelledby="outcomes-h">
+    <div class="card-head">
+      <h2 id="outcomes-h">Outcomes</h2>
+      <p>What happened to each question.</p>
+    </div>
+    <div class="segbar" id="segbar" role="img" aria-label="{% for o in data.outcomes %}{{ o.label }} {{ o.count }}{% if not forloop.last %}, {% endif %}{% endfor %}"></div>
+    <ul class="legend">
+      {% for o in data.outcomes %}<li><span class="key s{{ forloop.counter }}"></span>{{ o.label }}</li>{% endfor %}
+    </ul>
+    <p class="note">
+      When passages were found, the model answered <strong>{{ grounding.precision }}</strong> of the time
+      (grounded precision). Median best-passage relevance <strong>{{ grounding.top_score }}</strong>;
+      <strong>{{ grounding.citations }}</strong> of answers cite their passages; an answer uses
+      {{ grounding.tokens_in }} input / {{ grounding.tokens_out }} output tokens on average.
+    </p>
+    <details class="data">
+      <summary>Show data</summary>
+      <table><thead><tr><th>Outcome</th><th class="num">Questions</th><th class="num">Share</th></tr></thead><tbody>
+        {% for o in data.outcomes %}<tr><td>{{ o.label }}</td><td class="num">{{ o.count }}</td><td class="num">{% if o.share is not None %}{% widthratio o.share 1 100 %}%{% else %}–{% endif %}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+  </section>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="daily-h">
+      <div class="card-head">
+        <h2 id="daily-h">Questions per {{ data.bucket }}</h2>
+        <p>By outcome. Rising "not found" means the documents are missing what people ask.</p>
+      </div>
+      <div class="chart" id="chart-daily"></div>
+      <ul class="legend">
+        {% for o in data.outcomes %}<li><span class="key s{{ forloop.counter }}"></span>{{ o.label }}</li>{% endfor %}
+      </ul>
+      <details class="data">
+        <summary>Show data</summary>
+        <table><thead><tr><th>{{ data.bucket|capfirst }}</th><th class="num">By model</th><th class="num">FAQ / small talk</th><th class="num">Declined</th><th class="num">Not found</th><th class="num">Other</th></tr></thead><tbody>
+          {% for d in data.daily %}<tr><td>{{ d.date }}</td><td class="num">{{ d.answered }}</td><td class="num">{{ d.faq }}</td><td class="num">{{ d.declined }}</td><td class="num">{{ d.not_found }}</td><td class="num">{{ d.other }}</td></tr>{% endfor %}
+        </tbody></table>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="latency-h">
+      <div class="card-head">
+        <h2 id="latency-h">Response time</h2>
+        <p>Answered questions: median and 95th percentile, search plus generation.</p>
+      </div>
+      <div class="chart" id="chart-latency"></div>
+      <ul class="legend">
+        <li><span class="key line s1"></span>Median</li>
+        <li><span class="key line muted"></span>95th percentile</li>
+      </ul>
+      <details class="data">
+        <summary>Show data</summary>
+        <table><thead><tr><th>{{ data.bucket|capfirst }}</th><th class="num">Median (ms)</th><th class="num">95th pct (ms)</th></tr></thead><tbody>
+          {% for d in data.daily %}<tr><td>{{ d.date }}</td><td class="num">{{ d.p50_ms|default_if_none:"–" }}</td><td class="num">{{ d.p95_ms|default_if_none:"–" }}</td></tr>{% endfor %}
+        </tbody></table>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="scores-h">
+      <div class="card-head">
+        <h2 id="scores-h">Relevance of the best passage</h2>
+        <p>Embedding similarity per question. Many unanswered questions just below the cut-off ({{ data.min_score }}) suggest it is too strict.</p>
+      </div>
+      <div class="chart" id="chart-scores"></div>
+      <ul class="legend">
+        <li><span class="key s1"></span>Answered by model</li>
+        <li><span class="key neutral"></span>Not answered</li>
+      </ul>
+      <details class="data">
+        <summary>Show data</summary>
+        <table><thead><tr><th>Score from</th><th class="num">Answered</th><th class="num">Not answered</th></tr></thead><tbody>
+          {% for b in data.score_hist %}<tr><td>{{ b.bin }}</td><td class="num">{{ b.answered }}</td><td class="num">{{ b.not_answered }}</td></tr>{% endfor %}
+        </tbody></table>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="docs-h">
+      <div class="card-head">
+        <h2 id="docs-h">Most used documents</h2>
+        <p>Answers that drew on each document.</p>
+      </div>
+      {% if data.documents %}
+        <div class="chart" id="chart-docs"></div>
+        <details class="data">
+          <summary>Show data</summary>
+          <table><thead><tr><th>Document</th><th class="num">Answers</th></tr></thead><tbody>
+            {% for d in data.documents %}<tr><td>{{ d.document }}</td><td class="num">{{ d.answers }}</td></tr>{% endfor %}
+          </tbody></table>
+        </details>
+      {% else %}
+        <p class="empty small">No answers drew on documents in this period.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="models-h">
+    <div class="card-head">
+      <h2 id="models-h">Model efficiency</h2>
+      <p>Chat models used in this period, and the embedding model behind document search.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="metrics">
+        <thead><tr><th>Chat model</th><th class="num">Calls</th><th class="num">Answer rate</th><th class="num">Median time</th><th class="num">Avg tokens in</th><th class="num">Avg tokens out</th><th class="num">Tokens/s</th></tr></thead>
+        <tbody>
+          {% for m in models %}
+            <tr><td class="name" title="{{ m.model }}">{{ m.label }}</td><td class="num">{{ m.calls }}</td><td class="num">{{ m.answer_rate }}</td><td class="num">{{ m.response }}</td><td class="num">{{ m.tokens_in }}</td><td class="num">{{ m.tokens_out }}</td><td class="num">{{ m.speed }}</td></tr>
+          {% empty %}
+            <tr><td colspan="7" class="muted">No model calls in this period.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <dl class="embed">
+      <div><dt>Embedding model</dt><dd>{{ embedding.model|default:"none enabled" }}</dd></div>
+      <div><dt>Median search time</dt><dd>{{ embedding.p50 }} <span class="muted">(95th pct {{ embedding.p95 }})</span></dd></div>
+      <div><dt>Searches</dt><dd>{{ embedding.searches }}</dd></div>
+      <div><dt>Index</dt><dd>{{ embedding.chunks }} chunks from {{ embedding.documents }} documents{% if embedding.stale %} · <span class="bad">{{ embedding.stale }} need reindexing</span>{% endif %}</dd></div>
+    </dl>
+    <p class="note">Tokens/s is output tokens over generation time, including any model loading.</p>
+  </section>
+
+  <section class="card" aria-labelledby="misses-h">
+    <div class="card-head">
+      <h2 id="misses-h">Questions the documents couldn't answer</h2>
+      <p>Most recent first. Consider uploading documents that cover these.</p>
+    </div>
+    {% if data.unanswered %}
+      <div class="table-wrap">
+        <table class="metrics">
+          <thead><tr><th>Question</th><th>Outcome</th><th class="num">Best relevance</th><th>Date</th></tr></thead>
+          <tbody>
+            {% for u in data.unanswered %}
+              <tr><td class="question">{{ u.question }}</td><td class="muted">{{ u.outcome }}</td><td class="num">{% if u.top_score is not None %}{{ u.top_score|floatformat:2 }}{% else %}–{% endif %}</td><td class="muted nowrap">{{ u.date }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty small">Every question in this period was answered.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="card" aria-labelledby="processing-h">
+    <div class="card-head">
+      <h2 id="processing-h">Document processing</h2>
+      <p>Uploads, rebuilds and reindexing: reading the file, splitting it into chunks and embedding them.</p>
+    </div>
+    {% if processing.runs %}
+      <dl class="embed">
+        <div><dt>Documents processed</dt><dd>{{ processing.runs }} <span class="muted">({{ processing.uploads }} upload{{ processing.uploads|pluralize }}{% if processing.failed %}, <span class="bad">{{ processing.failed }} failed</span>{% endif %}{% if processing.cancelled %}, {{ processing.cancelled }} cancelled{% endif %})</span></dd></div>
+        <div><dt>Median processing time</dt><dd>{{ processing.total_p50 }} <span class="muted">(longest {{ processing.total_max }})</span></dd></div>
+        <div><dt>Chunks indexed</dt><dd>{{ processing.chunks_display }} <span class="muted">from {{ processing.bytes|filesizeformat }}</span></dd></div>
+        <div><dt>Embedding speed</dt><dd>{{ processing.speed }} <span class="muted">chunks/s</span></dd></div>
+      </dl>
+      <div class="table-wrap">
+        <table class="metrics">
+          <thead><tr><th>Document</th><th>Trigger</th><th class="num">Size</th><th class="num">Chunks</th><th class="num">Extract</th><th class="num">Embed</th><th class="num">Total</th><th>Result</th><th>When</th></tr></thead>
+          <tbody>
+            {% for r in processing.recent %}
+              <tr>
+                <td class="name" title="{{ r.document_name }}">{{ r.document_name }}</td>
+                <td class="muted">{{ r.trigger|capfirst }}</td>
+                <td class="num">{{ r.size|filesizeformat }}</td>
+                <td class="num">{{ r.chunks }}</td>
+                <td class="num">{{ r.extract }}</td>
+                <td class="num">{{ r.embed }}</td>
+                <td class="num">{{ r.total }}</td>
+                <td{% if r.error %} title="{{ r.error }}"{% endif %}>{% if r.status == "ready" %}Ready{% elif r.status == "failed" %}<span class="bad">Failed</span>{% else %}<span class="muted">Cancelled</span>{% endif %}</td>
+                <td class="muted nowrap">{{ r.date }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Extract = reading the file and pulling out its text; Embed = creating the search vectors. Records from before timing was added show only the total.</p>
+    {% else %}
+      <p class="empty small">No documents were processed in this period.</p>
+    {% endif %}
+  </section>
+</main>
+<div class="viz-tip" id="viz-tip" role="status" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+{{ data|json_script:"perf-data" }}
+<script src="{% static 'rag/performance.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Create your account · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="narrow">
+  <p class="eyebrow mono">Step 1 of 2</p>
+  <h1>Create your account</h1>
+  <p class="lead">Then create your free chatbot. No card needed.</p>
+  <form class="card formcard" method="post" novalidate>
+    {% csrf_token %}
+    {% for e in form.non_field_errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+    {% for field in form %}
+      {% if field.name == "website" %}
+        <div class="trap" aria-hidden="true"><label for="{{ field.id_for_label }}">Leave empty</label>{{ field }}</div>
+      {% else %}
+        <div class="field{% if field.errors %} has-error{% endif %}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for e in field.errors %}<p class="error">{{ e }}</p>{% endfor %}
+          {% if field.name == "password1" %}<p class="muted small">At least 8 characters, not too common, not all numbers.</p>{% endif %}
+        </div>
+      {% endif %}
+    {% endfor %}
+    <button class="btn primary block" type="submit">Create account</button>
+    <p class="muted small">Already have an account? <a href="{% url 'portal:home' %}#signin">Sign in</a></p>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,5 @@
+<nav class="tabs" aria-label="Admin sections">
+  <a href="{% url 'rag:home' tenant_slug=tenant.slug %}"{% if tab == "documents" %} class="on" aria-current="page"{% endif %}>Documents</a>
+  <a href="{% url 'rag:performance' tenant_slug=tenant.slug %}"{% if tab == "performance" %} class="on" aria-current="page"{% endif %}>Performance</a>
+  <a href="{% url 'rag:embed' tenant_slug=tenant.slug %}"{% if tab == "embed" %} class="on" aria-current="page"{% endif %}>Embed</a>
+</nav>

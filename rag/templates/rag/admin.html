@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Admin · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+<header class="ws-bar">
+  <a class="ws-title" href="{% url 'chat:home' tenant_slug=tenant.slug %}">{{ tenant.name }}</a>
+  {% include "workspace/_nav.html" with active="admin" %}
+  {% include "workspace/_account.html" %}
+</header>
+
+<main class="ws-main">
+  <div class="page-head">
+    <h1>Knowledge base</h1>
+    <p>Documents uploaded here are split into chunks and embedded so the workspace assistant can draw on them.</p>
+  </div>
+  {% include "rag/_tabs.html" with tab="documents" %}
+
+  {% if messages %}
+    <ul class="flash" role="status">
+      {% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if no_embedding_model %}
+    <ul class="flash" role="status"><li class="error">No embedding model is enabled, so documents can't be uploaded or searched. An administrator needs to enable one in Django admin &rsaquo; LLM models.</li></ul>
+  {% endif %}
+
+  <section aria-labelledby="report-h">
+    <h2 id="report-h" class="section-h">Report</h2>
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-label">Documents consumed</span>
+        <span class="stat-value" id="stat-documents">{{ report.documents }}</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Chunks available</span>
+        <span class="stat-value" id="stat-chunks">{{ report.chunks }}</span>
+      </div>
+    </div>
+    <p class="stat-note">
+      {{ report.total_bytes|filesizeformat }} indexed · embedded with <code>{{ embed_model }}</code>
+      {% if report.failed %} · <span class="bad">{{ report.failed }} failed</span>{% endif %}
+      {% if report.processing %} · {{ report.processing }} processing{% endif %}
+      {% if report.stale %} · <span class="bad">{{ report.stale }} need reindexing</span> (embedding settings changed; run <code>manage.py reindex_documents</code>){% endif %}
+    </p>
+  </section>
+
+  <section aria-labelledby="upload-h">
+    <h2 id="upload-h" class="section-h">Upload <span class="count">{{ documents|length }} of {{ max_documents }} documents</span></h2>
+    <form class="drop" id="upload-form" method="post" action="{% url 'rag:upload' tenant_slug=tenant.slug %}" enctype="multipart/form-data">
+      {% csrf_token %}
+      <input class="drop-input" id="files" type="file" name="files" accept="{{ accept }}" multiple required
+             data-max-files="{{ slots_left }}" data-max-bytes="{% widthratio max_upload_mb 1 1048576 %}"
+             data-accept="{{ accept }}"{% if not slots_left %} disabled{% endif %}>
+      <label class="drop-zone{% if not slots_left %} full{% endif %}" for="files" id="drop-zone">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {% if slots_left %}
+          <span class="drop-title" id="drop-title">Drop files here or <u>browse</u></span>
+          <span class="drop-hint">{{ allowed_types }} · up to {{ max_upload_mb }} MB each · {{ slots_left }} more file{{ slots_left|pluralize }}</span>
+        {% else %}
+          <span class="drop-title" id="drop-title">Document limit reached</span>
+          <span class="drop-hint">This workspace can store {{ max_documents }} document{{ max_documents|pluralize }}. Remove one below to upload another.</span>
+        {% endif %}
+      </label>
+      <div class="drop-actions">
+        <button class="btn" type="submit" id="upload-btn" disabled>Upload</button>
+      </div>
+    </form>
+  </section>
+
+  <section aria-labelledby="docs-h">
+    <h2 id="docs-h" class="section-h">Documents <span class="count">{{ documents|length }}</span></h2>
+    {% if documents %}
+      <div class="table-wrap">
+        <table class="docs">
+          <thead>
+            <tr><th>Name</th><th class="num">Chunks</th><th class="num">Size</th><th class="num">Indexed in</th><th>Status</th><th>Added</th><th><span class="sr-only">Actions</span></th></tr>
+          </thead>
+          <tbody>
+            {% for d in documents %}
+              <tr>
+                <td class="name"><span class="ext">{{ d.extension }}</span>{{ d.name }}</td>
+                <td class="num">{{ d.chunk_count }}</td>
+                <td class="num">{{ d.size|filesizeformat }}</td>
+                <td class="num">{{ d.indexed_in }}</td>
+                <td>{% if d.needs_rebuild and d.status == "ready" %}<span class="pill processing" title="Embedding settings changed since this was indexed">Needs rebuild</span>{% else %}<span class="pill {{ d.status }}"{% if d.error %} title="{{ d.error }}"{% endif %}>{{ d.get_status_display }}</span>{% endif %}</td>
+                <td class="muted"><time datetime="{{ d.created_at|date:'c' }}">{{ d.created_at|date:"M j, Y" }}</time></td>
+                <td class="actions">
+                  {% if d.needs_rebuild %}
+                    <form method="post" action="{% url 'rag:rebuild' tenant_slug=tenant.slug pk=d.pk %}" class="rebuild-form">
+                      {% csrf_token %}
+                      <button type="submit" class="link-btn rebuild" aria-label="Rebuild {{ d.name }}">Rebuild</button>
+                    </form>
+                  {% endif %}
+                  <form method="post" action="{% url 'rag:delete' tenant_slug=tenant.slug pk=d.pk %}" data-confirm="Remove {{ d.name }} and its {{ d.chunk_count }} chunks?">
+                    {% csrf_token %}
+                    <button type="submit" class="link-btn" aria-label="Remove {{ d.name }}">Remove</button>
+                  </form>
+                </td>
+              </tr>
+              {% if d.error %}<tr class="err-row"><td colspan="7">{{ d.error }}</td></tr>{% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">No documents yet. Upload your first file above.</p>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}<script src="{% static 'rag/admin.js' %}"></script>{% endblock %}
