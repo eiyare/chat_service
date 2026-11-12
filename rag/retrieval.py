@@ -141,18 +141,35 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
         for cid, score in sorted(best.items(), key=lambda kv: -kv[1])
         if cid in chunks
     ]
-    if cfg.min_term_overlap > 0:
-        # Strong matches are trusted as they are; the key-word check guards the rest
-        # (it catches questions that only resemble a passage in shape).
-        if min_score == config.doc_cutoff:
-            strong_at = config.strong_cutoff  # per embedding model, or cut-off x platform factor
-        else:  # an explicit min_score (diagnostics/tests)
-            strong_at = min_score * cfg.confident_factor if min_score > 0 else float("inf")
+    results.extend(finalise(queries, passages, strong_threshold(config, cfg, min_score), top_k, cfg.min_term_overlap))
+    return results
+
+
+def strong_threshold(config, cfg, min_score: float) -> float:
+    """Similarity at which passages skip the key-word check."""
+    if min_score == config.doc_cutoff:
+        return config.strong_cutoff  # per embedding model, or cut-off x platform factor
+    # an explicit min_score (diagnostics/tests)
+    return min_score * cfg.confident_factor if min_score > 0 else float("inf")
+
+
+def finalise(queries, passages, strong_at: float, top_k: int, min_term_overlap: float):
+    """Apply the key-word check to candidate passages (best first) and keep top_k.
+
+    Strong matches are trusted as they are; the key-word check guards the rest
+    (it catches questions that only resemble a passage in shape).
+    """
+    if min_term_overlap > 0:
         strong = [p for p in passages if p.score >= strong_at]
         others = [p for p in passages if p.score < strong_at]
-        passages = strong + (_lexical_filter(queries, others, cfg.min_term_overlap) if others else [])
-    results.extend(passages[:top_k])
-    return results
+        passages = strong + (_lexical_filter(queries, others, min_term_overlap) if others else [])
+    return passages[:top_k]
+
+
+def keyword_coverage(query_terms: list[set], text: str) -> float:
+    """Best share of any query's key terms found in ``text``."""
+    chunk_terms = terms(text)
+    return max(len(t & chunk_terms) / len(t) for t in query_terms)
 
 
 async def _keyword_candidates(tenant, config, queries, limit, threshold) -> list[int]:
@@ -169,8 +186,7 @@ async def _keyword_candidates(tenant, config, queries, limit, threshold) -> list
     rows = [r async for r in _searchable(tenant, config).filter(prefilter).values_list("id", "text")[:500]]
     ranked = []
     for cid, text in rows:
-        chunk_terms = terms(text)
-        best = max(len(t & chunk_terms) / len(t) for t in query_terms)
+        best = keyword_coverage(query_terms, text)
         if best >= threshold:
             ranked.append((best, cid))
     ranked.sort(reverse=True)

@@ -94,6 +94,20 @@ class Cancelled(Exception):
     """The document was deleted while it was being processed."""
 
 
+def split_document(text: str, name: str, cfg):
+    """Turn extracted text into (sections, passage texts, embedding inputs)."""
+    if cfg.section_chunking:
+        sectioned = chunk_sections(text, cfg.chunk_size, cfg.chunk_overlap)
+    else:
+        sectioned = [("", piece) for piece in chunk_text(text, cfg.chunk_size, cfg.chunk_overlap)]
+    # Passage text carries its section heading (for the model and the key-word check);
+    # the embedding also gets the document title, so every chunk says what it is about.
+    pieces = [f"{heading}\n{piece}" if heading else piece for heading, piece in sectioned]
+    title = PurePath(name).stem
+    embed_inputs = [f"{title}\n{piece}" if cfg.section_chunking else piece for piece in pieces]
+    return sectioned, pieces, embed_inputs
+
+
 async def process(document: Document, data: bytes | None = None,
                   trigger: str = IndexingRun.Trigger.UPLOAD) -> Document:
     """(Re)build a document's chunks and embeddings from its stored file.
@@ -116,15 +130,7 @@ async def process(document: Document, data: bytes | None = None,
         text = await sync_to_async(extract_text)(data, document.extension)
         run.characters = len(text)
         run.extract_ms = int((time.monotonic() - started) * 1000)
-        if cfg.section_chunking:
-            sectioned = chunk_sections(text, cfg.chunk_size, cfg.chunk_overlap)
-        else:
-            sectioned = [("", piece) for piece in chunk_text(text, cfg.chunk_size, cfg.chunk_overlap)]
-        # Passage text carries its section heading (for the model and the key-word check);
-        # the embedding also gets the document title, so every chunk says what it is about.
-        pieces = [f"{heading}\n{piece}" if heading else piece for heading, piece in sectioned]
-        title = PurePath(document.name).stem
-        embed_inputs = [f"{title}\n{piece}" if cfg.section_chunking else piece for piece in pieces]
+        sectioned, pieces, embed_inputs = split_document(text, document.name, cfg)
         if not pieces:
             raise ExtractionError("No readable text found (scanned PDFs need OCR first)")
 

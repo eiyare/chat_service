@@ -1,0 +1,231 @@
+{
+  "_about": "Embedding test cases (manage.py eval_embeddings). 'answerable' questions need a passage from 'document' (name contains) that contains ANY of 'expect'; 'off_topic' questions should be refused; FAQ pairs: 'same' should match the FAQ, 'different'/'unrelated' should not. Edit freely, but keep a copy of old results for comparison when you change cases.",
+  "workspaces": {
+    "dominos-pizza": {
+      "answerable": [
+        {
+          "q": "What time do you close on Friday?",
+          "expect": [
+            "23:15"
+          ]
+        },
+        {
+          "q": "When do you open on Sunday?",
+          "expect": [
+            "Sunday"
+          ]
+        },
+        {
+          "q": "What is your delivery hotline?",
+          "expect": [
+            "0700 700 9999"
+          ]
+        },
+        {
+          "q": "Wetin be una delivery number?",
+          "expect": [
+            "0700 700 9999"
+          ]
+        },
+        {
+          "q": "Una get WhatsApp number?",
+          "expect": [
+            "0908 888 9999"
+          ]
+        },
+        {
+          "q": "Is there any location of pizza in Iju?",
+          "expect": [
+            "Store Name",
+            "Region A",
+            "Region B"
+          ]
+        },
+        {
+          "q": "Do you have a store in Ikeja?",
+          "expect": [
+            "Ikeja"
+          ]
+        },
+        {
+          "q": "Do you deliver in Port Harcourt?",
+          "expect": [
+            "Port Harcourt"
+          ]
+        },
+        {
+          "q": "Who is the master franchisee?",
+          "expect": [
+            "Eat'N'Go"
+          ]
+        },
+        {
+          "q": "Do you sell suya pizza?",
+          "expect": [
+            "Suya"
+          ]
+        },
+        {
+          "q": "Can I pay with USSD?",
+          "expect": [
+            "USSD"
+          ]
+        }
+      ],
+      "off_topic": [
+        "What is the capital of France?",
+        "Who won the 2018 World Cup?",
+        "How do I change a car tyre?",
+        "What is Typhoid?",
+        "Write me a poem about the sea",
+        "How do I solve a quadratic equation?"
+      ]
+    },
+    "ei-consulting-llc": {
+      "answerable": [
+        {
+          "q": "What services does Ei Consulting offer?",
+          "expect": [
+            "Core Services",
+            "Service Offering"
+          ]
+        },
+        {
+          "q": "Who is the CEO of Ei Consulting?",
+          "expect": [
+            "CEO"
+          ]
+        },
+        {
+          "q": "Where is Ei Consulting headquartered?",
+          "expect": [
+            "headquartered"
+          ]
+        },
+        {
+          "q": "Does Ei Consulting do cloud work?",
+          "expect": [
+            "Cloud"
+          ]
+        },
+        {
+          "q": "Who is Chief Iyare",
+          "expect": [
+            "Iyare"
+          ]
+        },
+        {
+          "q": "Wetin Ei Consulting dey do?",
+          "expect": [
+            "Core Services",
+            "Service Offering",
+            "specializing"
+          ]
+        }
+      ],
+      "off_topic": [
+        "What is the capital of France?",
+        "How do I bake bread?",
+        "Who won the 2018 World Cup?",
+        "What is a quadratic equation?",
+        "Do you sell pizza?"
+      ]
+    },
+    "math": {
+      "answerable": [
+        {
+          "q": "What is a quadratic equation?",
+          "document": "quadratic"
+        },
+        {
+          "q": "How do I solve a quadratic equation?",
+          "document": "quadratic",
+          "expect": [
+            "quadratic formula",
+            "factoris",
+            "factoriz"
+          ]
+        },
+        {
+          "q": "How I fit solve quadratic equation?",
+          "document": "quadratic"
+        },
+        {
+          "q": "How do you find the area of a circle?",
+          "expect": [
+            "πr"
+          ]
+        },
+        {
+          "q": "What is the Pythagorean theorem?",
+          "expect": [
+            "Pythagorean"
+          ]
+        },
+        {
+          "q": "What topics are covered in grade 8 math?",
+          "document": "Grade 8",
+          "expect": [
+            "Unit 1",
+            "Unit 2",
+            "Curriculum Scope"
+          ]
+        }
+      ],
+      "off_topic": [
+        "What is the capital of France?",
+        "How do I bake bread?",
+        "Who won the 2018 World Cup?",
+        "What is Typhoid?",
+        "What services does Ei Consulting offer?"
+      ]
+    }
+  },
+  "faq_pairs": [
+    {
+      "faq": "How many days of annual leave do I get?",
+      "asked": "How much annual leave do employees get?",
+      "expect": "same"
+    },
+    {
+      "faq": "How many days of annual leave do I get?",
+      "asked": "how many leave days do i have",
+      "expect": "same"
+    },
+    {
+      "faq": "Who is the CEO of Ei Consulting?",
+      "asked": "Who runs Ei Consulting?",
+      "expect": "same"
+    },
+    {
+      "faq": "What are your office hours?",
+      "asked": "When is the office open?",
+      "expect": "same"
+    },
+    {
+      "faq": "What time do you close?",
+      "asked": "Wetin time una dey close?",
+      "expect": "same"
+    },
+    {
+      "faq": "Who is the CEO of Ei Consulting?",
+      "asked": "Who is the CFO of Ei Consulting?",
+      "expect": "different"
+    },
+    {
+      "faq": "How many days of annual leave do I get?",
+      "asked": "How many days of sick leave do I get?",
+      "expect": "different"
+    },
+    {
+      "faq": "What are your office hours?",
+      "asked": "What are your weekend hours?",
+      "expect": "different"
+    },
+    {
+      "faq": "What are your office hours?",
+      "asked": "What is the capital of France?",
+      "expect": "unrelated"
+    }
+  ]
+}

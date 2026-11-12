@@ -141,14 +141,16 @@ async def stream_chat(
     }
 
 
-async def embed(texts: list[str], purpose: str = "document") -> list[list[float]]:
+async def embed(texts: list[str], purpose: str = "document", config: Config | None = None) -> list[list[float]]:
     """Embed texts with the configured embedding model (no prefixes added here).
 
     purpose "query" or "document" adds that model's Query / Document options.
+    ``config`` overrides the live configuration (the embedding test uses this to
+    try a model without saving anything).
     """
     if not texts:
         return []
-    config = await aget_config()
+    config = config or await aget_config()
     model = config.embed_model
     if not model:
         raise LLMError("No embedding model configured (set one in the admin or LLM_EMBED_MODEL)")

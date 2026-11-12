@@ -299,6 +299,40 @@ them with:
 .venv/bin/python manage.py reindex_documents --tenant demo
 ```
 
+## Testing an embedding model
+
+Run this whenever you change the embedding model, its options or cut-offs, or the
+chunk settings, and compare with the previous run:
+
+```bash
+.venv/bin/python manage.py eval_embeddings                      # the enabled model, as configured
+.venv/bin/python manage.py eval_embeddings --compare latest     # ...and compare with the last saved run
+.venv/bin/python manage.py eval_embeddings --model bedrock/amazon.titan-embed-text-v2:0 \
+    --model bedrock/cohere.embed-multilingual-v3                # several models side by side
+.venv/bin/python manage.py eval_embeddings --set min_score=0.33 --set strong_score=0.38 \
+    --set 'query_params={"input_type": "search_query"}'         # try values before entering them in admin
+```
+
+It asks the questions in `rag/eval_cases/embeddings.json` against each listed
+workspace's documents and reports what the live search would do with that model
+(same decision code as the chat): **found** the right passage, returned a
+**wrong** one, or **refused**. Off-topic questions should be refused; FAQ
+rewordings should be similar enough to match, and different questions should not
+get the FAQ's answer. It also shows where the right passage ranks and whether one
+cut-off can separate real questions from off-topic ones (the margin).
+
+Nothing is written to the database. Any embedding model row can be tested, enabled
+or not, and `--set` overrides are for that run only. Documents already embedded
+with exactly that model and options reuse their stored vectors (free); otherwise
+they are embedded in memory (a few cents on Bedrock). Each run is saved to
+`var/embedding_evals/` (`--no-save` to skip). Not covered: query rewriting and FAQ
+context passages, which the chat adds on top.
+
+Edit the cases file as documents change: an answerable question names the passage
+it needs (`document` name contains / any of `expect`). A case matching no passage
+is flagged `??` rather than counted. Keep old result files if you change the
+cases, since scores are only comparable on the same cases.
+
 ## Adding tenant-scoped features
 
 Decorate views with `@tenant_required` (it supports sync and async views). It
