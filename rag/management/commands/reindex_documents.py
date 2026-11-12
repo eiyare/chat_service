@@ -1,6 +1,7 @@
 from asgiref.sync import async_to_sync
 from django.core.management.base import BaseCommand, CommandError
 
+from llm import close_clients
 from rag import services
 from rag.models import Document, current_embed_signature
 from tenants.models import Tenant
@@ -33,12 +34,15 @@ class Command(BaseCommand):
 
     async def _run(self, documents):
         ok = failed = 0
-        for doc in documents:
-            result = await services.process(doc, trigger="reindex")
-            if result.status == Document.Status.READY:
-                ok += 1
-                self.stdout.write(f"  ok      {doc.tenant.slug}/{doc.name}: {result.chunk_count} chunks")
-            else:
-                failed += 1
-                self.stdout.write(self.style.WARNING(f"  failed  {doc.tenant.slug}/{doc.name}: {result.error}"))
+        try:
+            for doc in documents:
+                result = await services.process(doc, trigger="reindex")
+                if result.status == Document.Status.READY:
+                    ok += 1
+                    self.stdout.write(f"  ok      {doc.tenant.slug}/{doc.name}: {result.chunk_count} chunks")
+                else:
+                    failed += 1
+                    self.stdout.write(self.style.WARNING(f"  failed  {doc.tenant.slug}/{doc.name}: {result.error}"))
+        finally:
+            await close_clients()  # in this loop, before async_to_sync closes it
         self.stdout.write(self.style.SUCCESS(f"Reindexed {ok} document(s), {failed} failed."))

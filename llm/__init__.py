@@ -5,10 +5,10 @@ models are offered and how each provider is reached comes from Django settings
 (environment variables), overridden by the Django admin; see llm/config.py.
 Changing provider or model is a configuration change, never a code change.
 """
-from .client import LLMError, embed, provider_of, resolve, stream_chat
+from .client import LLMError, close_clients, embed, provider_of, resolve, stream_chat
 from .config import Config, aget_config, get_config, invalidate
 
 __all__ = [
-    "Config", "LLMError", "aget_config", "embed", "get_config", "invalidate",
+    "Config", "LLMError", "aget_config", "close_clients", "embed", "get_config", "invalidate",
     "provider_of", "resolve", "stream_chat",
 ]

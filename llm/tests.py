@@ -218,3 +218,28 @@ class EmbedTests(TestCase):
         with mock.patch("litellm.aembedding", aembedding):
             with self.assertRaisesMessage(llm.LLMError, "1 vectors for 2 inputs"):
                 await llm.embed(["a", "b"])
+
+
+class CloseClientsTests(SimpleTestCase):
+    """close_clients() ends a short-lived loop cleanly (management commands)."""
+
+    def test_closes_and_forgets_cached_clients(self):
+        from asgiref.sync import async_to_sync
+
+        litellm.in_memory_llm_clients_cache.set_cache("stale-client", object())
+        close = mock.AsyncMock()
+        with mock.patch("litellm.close_litellm_async_clients", close):
+            async_to_sync(llm.close_clients)()
+        close.assert_awaited_once()
+        self.assertIsNone(litellm.in_memory_llm_clients_cache.get_cache("stale-client"))
+
+    def test_close_failure_is_logged_not_raised(self):
+        from asgiref.sync import async_to_sync
+
+        litellm.in_memory_llm_clients_cache.set_cache("stale-client", object())
+        close = mock.AsyncMock(side_effect=RuntimeError("boom"))
+        with mock.patch("litellm.close_litellm_async_clients", close), \
+                self.assertLogs("llm.client", "WARNING") as logs:
+            async_to_sync(llm.close_clients)()
+        self.assertIn("Closing LiteLLM clients failed", logs.output[0])
+        self.assertIsNone(litellm.in_memory_llm_clients_cache.get_cache("stale-client"))

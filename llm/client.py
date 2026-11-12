@@ -164,3 +164,19 @@ async def embed(texts: list[str], purpose: str = "document", config: Config | No
     if len(data) != len(texts):
         raise LLMError(f"Embedding model returned {len(data)} vectors for {len(texts)} inputs")
     return [d["embedding"] for d in data]
+
+
+async def close_clients() -> None:
+    """Close LiteLLM's cached HTTP clients and forget them.
+
+    Call this at the end of a short-lived event loop (management commands run
+    through ``async_to_sync``). LiteLLM's own exit hook closes the clients in a
+    new loop, which fails with "Event loop is closed" for connections opened in
+    the finished one. Clearing the cache means a later loop in the same process
+    opens fresh clients instead of reusing closed ones.
+    """
+    try:
+        await litellm.close_litellm_async_clients()
+    except Exception:  # clean-up must never mask the command's own result
+        logger.warning("Closing LiteLLM clients failed", exc_info=True)
+    litellm.in_memory_llm_clients_cache.flush_cache()

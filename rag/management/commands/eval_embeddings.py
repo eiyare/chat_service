@@ -7,6 +7,7 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from llm import close_clients
 from rag import embedding_eval as ev
 from tenants.models import Tenant
 
@@ -55,8 +56,6 @@ class Command(BaseCommand):
 
     async def _run_all(self, cases, configs, tenants, overrides, opts):
         """All models in one event loop, then close LiteLLM's HTTP clients cleanly."""
-        import litellm
-
         reports = []
         try:
             for config in configs:
@@ -73,10 +72,7 @@ class Command(BaseCommand):
                     self.stdout.write(f"  saved {shown}")
                 reports.append(report)
         finally:
-            try:
-                await litellm.close_litellm_async_clients()
-            except Exception:
-                pass
+            await close_clients()
         return reports
 
     # --- input ------------------------------------------------------------------

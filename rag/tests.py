@@ -241,6 +241,21 @@ class AdminPageTests(MediaRootMixin, TestCase):
             call_command("reindex_documents", stdout=out)
             self.assertIn("Nothing to reindex.", out.getvalue())
 
+    def test_reindex_closes_llm_clients_even_when_processing_fails(self):
+        from io import StringIO
+        from unittest import mock
+
+        from django.core.management import call_command
+
+        self.upload(self.text_file())
+        close = mock.AsyncMock()
+        process = mock.AsyncMock(side_effect=RuntimeError("boom"))
+        with mock.patch("rag.management.commands.reindex_documents.close_clients", close), \
+                mock.patch("rag.services.process", process), \
+                self.assertRaisesMessage(RuntimeError, "boom"):
+            call_command("reindex_documents", "--all", stdout=StringIO())
+        close.assert_awaited_once()
+
 
 QUERY_VECTORS = {}
 
