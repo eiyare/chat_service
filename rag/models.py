@@ -36,6 +36,28 @@ class Document(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Background processing (rag/jobs.py). Kept apart from ``status`` so a document
+    # being rebuilt stays Ready (and searchable) until its new chunks replace the old.
+    class Job(models.TextChoices):
+        NONE = "", "None"
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Processing"
+
+    class Stage(models.TextChoices):
+        READING = "reading", "Reading file"
+        SPLITTING = "splitting", "Splitting into passages"
+        EMBEDDING = "embedding", "Embedding passages"
+        SAVING = "saving", "Saving passages"
+
+    job = models.CharField(max_length=16, choices=Job.choices, blank=True, default="", db_index=True)
+    job_trigger = models.CharField(max_length=16, blank=True, help_text="upload or rebuild")
+    job_stage = models.CharField(max_length=16, choices=Stage.choices, blank=True)
+    job_done = models.PositiveIntegerField(default=0, help_text="Passages embedded so far")
+    job_total = models.PositiveIntegerField(default=0, help_text="Passages to embed")
+    job_heartbeat = models.DateTimeField(
+        null=True, blank=True, help_text="Last sign of life from the worker; a stale one means it was interrupted",
+    )
+
     class Meta:
         ordering = ["-created_at"]
         constraints = [
@@ -44,6 +66,27 @@ class Document(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def job_label(self) -> str:
+        """Progress in words, e.g. "Embedding passages 120 of 400"."""
+        if not self.job:
+            return ""
+        if self.job == self.Job.QUEUED or not self.job_stage:
+            return "Queued"
+        label = self.Stage(self.job_stage).label
+        if self.job_stage == self.Stage.EMBEDDING and self.job_total:
+            label += f" {self.job_done} of {self.job_total}"
+        return label
+
+    @property
+    def job_percent(self) -> int | None:
+        """Share of passages embedded (None until the passage count is known)."""
+        if not self.job or not self.job_total:
+            return None
+        if self.job_stage == self.Stage.SAVING:
+            return 100
+        return min(100, round(100 * self.job_done / self.job_total))
 
 
 class Chunk(models.Model):
