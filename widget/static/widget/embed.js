@@ -1,5 +1,6 @@
 /* SaaS Chat website widget loader.
  * Usage: <script src="https://<host>/static/widget/embed.js" data-key="<public key>" async></script>
+ * The Moodle plugin adds data-user="<signed student token>". */
  * Adds a chat button; the chat itself runs in an isolated iframe served by <host>. */
 (function () {
   "use strict";
@@ -53,7 +54,9 @@
     function open(state) {
       if (state && !frame) {
         frame = document.createElement("iframe");
-        frame.src = base;
+        // Signed student from the Moodle plugin. The #fragment is never sent to a server.
+        var user = script.getAttribute("data-user");
+        frame.src = base + (user ? "#u=" + encodeURIComponent(user) : "");
         frame.title = cfg.title;
         frame.setAttribute("allow", "clipboard-write");
         panel.appendChild(frame);

@@ -19,7 +19,24 @@
   store(visitorKey, visitorId);
   var conversationId = load(convKey);
 
-  $("greeting").textContent = config.greeting;
+  // Signed student from the Moodle plugin (embed.js puts it in the #fragment). The server
+  // verifies it; the name read here is only for the greeting.
+  var userToken = new URLSearchParams(location.hash.slice(1)).get("u") || "";
+  function tokenPayload(token) {
+    try {
+      var p = token.split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
+      var bytes = Uint8Array.from(atob(p + "===".slice((p.length + 3) % 4)), function (c) { return c.charCodeAt(0); });
+      return JSON.parse(new TextDecoder().decode(bytes)) || {};
+    } catch (e) { return {}; }
+  }
+  var user = userToken ? tokenPayload(userToken) : {};
+  var userName = String(user.name || "").trim().slice(0, 80);
+  if (user.sub) {  // each student's chat kept apart from guests and others on a shared computer
+    convKey += ":u" + String(user.sub);
+    conversationId = load(convKey);
+  }
+
+  $("greeting").textContent = config.greeting.split("{name}").join(userName || "Guest");
 
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function scroll() { thread.scrollTop = thread.scrollHeight; }
@@ -48,15 +65,16 @@
     return fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/x-ndjson, application/json" },
-      body: JSON.stringify(Object.assign({ visitor_id: visitorId }, payload)),
+      body: JSON.stringify(Object.assign({ visitor_id: visitorId, user_token: userToken || undefined }, payload)),
     });
   }
 
-  // Restore this visitor's conversation, if any.
-  if (conversationId) {
-    post(config.urls.history, { conversation_id: +conversationId })
+  // Restore this visitor's conversation, if any; a signed-in student gets their latest one on any device.
+  if (conversationId || userToken) {
+    post(config.urls.history, { conversation_id: conversationId ? +conversationId : null })
       .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
       .then(function (data) {
+        conversationId = data.conversation_id; store(convKey, String(conversationId));
         data.messages.forEach(function (m) {
           var v = addMessage(m.role, m.content);
           if (m.role === "assistant") setMeta(v, m.sources, m.outcome === "faq");

@@ -15,9 +15,10 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from chat.models import Conversation, Message
 from chat.views import respond
+from rag.models import Document
 from tenants.decorators import tenant_required
 
-from . import ratelimit
+from . import moodle, ratelimit
 from .forms import WidgetForm
 from .models import Widget
 
@@ -56,8 +57,12 @@ async def _visitor_request(request, key):
     except ValueError:
         return _error("Invalid JSON body", 400)
     visitor_id = str(body.get("visitor_id") or "") if isinstance(body, dict) else ""
-    if not _VISITOR.match(visitor_id):
+    if not _VISITOR.match(visitor_id) or visitor_id.startswith("moodle-"):  # reserved for verified students
         return _error("Invalid visitor", 400)
+    if widget.moodle_enabled and body.get("user_token"):
+        user = moodle.verify_user(widget.moodle_shared_code, body["user_token"])
+        if user:  # signed by the Moodle plugin: same conversations on every device
+            visitor_id = moodle.visitor_id(user)
     return widget, body, visitor_id
 
 
@@ -122,15 +127,64 @@ async def history(request, key):
     if not isinstance(checked, tuple):
         return checked
     widget, body, visitor_id = checked
+    conversations = Conversation.objects.filter(
+        tenant=widget.tenant, source=Conversation.Source.WIDGET, visitor_id=visitor_id,
+    )
     try:
-        conversation = await Conversation.objects.aget(
-            pk=body.get("conversation_id"), tenant=widget.tenant,
-            source=Conversation.Source.WIDGET, visitor_id=visitor_id,
-        )
+        if body.get("conversation_id") is None:  # latest, e.g. a student on a new device
+            conversation = await conversations.alatest("pk")
+        else:
+            conversation = await conversations.aget(pk=body.get("conversation_id"))
     except (Conversation.DoesNotExist, ValueError, TypeError):
         return _error("Conversation not found", 404)
     msgs = [m.as_dict() async for m in conversation.messages.all()]
     return JsonResponse({"conversation_id": conversation.pk, "messages": msgs})
+
+
+def _moodle_copy_widget(request, key):
+    """The widget whose passages the Moodle plugin may copy, or an error response."""
+    try:
+        widget = Widget.objects.select_related("tenant").get(public_key=key, moodle_enabled=True,
+                                                             tenant__is_active=True)
+    except Widget.DoesNotExist:
+        raise Http404("Not found")
+    if not moodle.check_shared_code(widget, request):
+        return _error("Wrong shared code", 403)
+    if widget.chunk_storage != Widget.ChunkStorage.MIRROR:
+        return _error("Copying passages to Moodle is turned off for this workspace", 409)
+    return widget
+
+
+def _ready_documents(widget):
+    return Document.objects.filter(tenant=widget.tenant, status=Document.Status.READY)
+
+
+@login_not_required  # server-to-server: the Moodle plugin authenticates with the shared code
+@require_GET
+def moodle_documents(request, key):
+    """The workspace's ready documents and a version that changes whenever their passages do."""
+    widget = _moodle_copy_widget(request, key)
+    if not isinstance(widget, Widget):
+        return widget
+    docs = [{"id": d.pk, "name": d.name, "version": f"{d.sha256[:16]}-{int(d.updated_at.timestamp())}"}
+            for d in _ready_documents(widget).order_by("pk")]
+    return JsonResponse({"documents": docs})
+
+
+@login_not_required
+@require_GET
+def moodle_chunks(request, key, pk):
+    """One document's passages, in order."""
+    widget = _moodle_copy_widget(request, key)
+    if not isinstance(widget, Widget):
+        return widget
+    try:
+        doc = _ready_documents(widget).get(pk=pk)
+    except Document.DoesNotExist:
+        raise Http404("Document not found")
+    chunks = [{"index": c.index, "section": c.section, "text": c.text}
+              for c in doc.chunks.order_by("index").only("index", "section", "text")]
+    return JsonResponse({"id": doc.pk, "name": doc.name, "chunks": chunks})
 
 
 @require_http_methods(["GET", "POST"])
