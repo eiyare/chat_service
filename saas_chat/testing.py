@@ -5,8 +5,9 @@ from django.test import TestCase as DjangoTestCase, override_settings
 
 # Question rewriting (an extra model call) and the strong-match bypass are off by
 # default so tests see one model call and the key-word check; tests for those
-# features turn them on.
-@override_settings(RAG_REWRITE_QUERIES=False, RAG_CONFIDENT_FACTOR=10, RAG_SECTION_CHUNKING=False)
+# features turn them on. Document jobs run inline (in the request) so tests see the result.
+@override_settings(RAG_REWRITE_QUERIES=False, RAG_CONFIDENT_FACTOR=10, RAG_SECTION_CHUNKING=False,
+                   RAG_INLINE_PROCESSING=True)
 class TestCase(DjangoTestCase):
     """A TestCase whose ``client`` and ``async_client`` are signed in as a superuser
     (``self.signed_in_user``), who can open every workspace. Tests about access

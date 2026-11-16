@@ -417,6 +417,9 @@ RAG_CHUNK_SIZE = env_int("RAG_CHUNK_SIZE", 1000)
 RAG_CHUNK_OVERLAP = env_int("RAG_CHUNK_OVERLAP", 150)
 # Number of chunks sent per embedding request.
 RAG_EMBED_BATCH_SIZE = env_int("RAG_EMBED_BATCH_SIZE", 32)
+# Process uploads in the request instead of the background worker (rag/jobs.py).
+# For tests and debugging; uploads of big files can then time out.
+RAG_INLINE_PROCESSING = env_bool("RAG_INLINE_PROCESSING", False)
 # Split documents at their headings and give each chunk the document title and
 # section heading (seed value for Platform settings > Document processing). Off by
 # default: headings found in PDF text are unreliable (tables of contents, numbered

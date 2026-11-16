@@ -57,17 +57,41 @@
   });
 
   form.addEventListener("submit", function () {
-    // Embedding can take a while; show progress and block double submits.
+    // Only the upload itself happens now; processing continues in the background.
     btn.disabled = true;
     btn.classList.add("busy");
-    btn.textContent = "Processing…";
+    btn.textContent = "Uploading…";
   });
+
+  // Background processing: update progress every few seconds; reload once all jobs finish
+  // so chunk counts, statuses and totals are current.
+  var table = document.querySelector("table.docs[data-progress-url]");
+  if (table && table.querySelector("[data-job]")) {
+    var poll = function () {
+      fetch(table.dataset.progressUrl, { headers: { Accept: "application/json" }, credentials: "same-origin" })
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function (data) {
+          var running = {};
+          data.documents.forEach(function (d) { running[d.id] = d; });
+          var finished = false;
+          table.querySelectorAll("[data-job]").forEach(function (pill) {
+            var d = running[pill.dataset.job];
+            if (!d) { finished = true; return; }
+            pill.textContent = d.label + (d.percent == null ? "" : " · " + d.percent + "%");
+          });
+          if (finished) location.reload();
+          else setTimeout(poll, 3000);
+        })
+        .catch(function () { setTimeout(poll, 10000); });
+    };
+    setTimeout(poll, 2000);
+  }
 
   document.querySelectorAll(".rebuild-form").forEach(function (f) {
     f.addEventListener("submit", function () {
       var b = f.querySelector("button");
       b.disabled = true;
-      b.textContent = "Rebuilding…";
+      b.textContent = "Queuing…";
     });
   });
 

@@ -66,10 +66,19 @@ async def check_capacity(tenant, policy) -> int:
 
 
 async def ingest(tenant, name: str, data: bytes) -> Document:
-    """Store a file and turn it into embedded chunks.
+    """Store a file and turn it into embedded chunks, in the caller.
 
     Raises UploadRejected for invalid or duplicate files. Processing errors do
     not raise; the document is saved with status FAILED and an error message.
+    """
+    return await process(await store(tenant, name, data), data)
+
+
+async def store(tenant, name: str, data: bytes) -> Document:
+    """Validate and save an uploaded file as a Processing document (no chunks yet).
+
+    Raises UploadRejected for invalid or duplicate files. The upload page then
+    queues the processing as a background job (rag/jobs.py).
     """
     name = PurePath(name).name[:255] or "document"
     policy = tenant.upload_policy
@@ -87,7 +96,7 @@ async def ingest(tenant, name: str, data: bytes) -> Document:
     document = Document(tenant=tenant, name=name, extension=ext, size=len(data), sha256=digest)
     # FileField.save writes the file and the row (sync storage API).
     await sync_to_async(document.file.save)(name, ContentFile(data), save=True)
-    return await process(document, data)
+    return document
 
 
 class Cancelled(Exception):
@@ -108,13 +117,20 @@ def split_document(text: str, name: str, cfg):
     return sectioned, pieces, embed_inputs
 
 
+async def _no_progress(stage: str, done: int = 0, total: int = 0) -> None:
+    pass
+
+
 async def process(document: Document, data: bytes | None = None,
-                  trigger: str = IndexingRun.Trigger.UPLOAD) -> Document:
+                  trigger: str = IndexingRun.Trigger.UPLOAD, progress=None) -> Document:
     """(Re)build a document's chunks and embeddings from its stored file.
 
     Records an IndexingRun with timings. Stops early if the document is deleted
-    meanwhile (checked between embedding batches).
+    meanwhile (checked between embedding batches). ``progress(stage, done, total)``
+    is awaited as work advances (rag/jobs.py records it on the document).
     """
+    progress = progress or _no_progress
+    Stage = Document.Stage
     document.status = Document.Status.PROCESSING
     document.error = ""
     config = await llm.aget_config()
@@ -125,11 +141,13 @@ async def process(document: Document, data: bytes | None = None,
         extension=document.extension, size=document.size, embed_model=config.embed_model,
     )
     try:
+        await progress(Stage.READING)
         if data is None:
             data = await sync_to_async(_read_file)(document)
         text = await sync_to_async(extract_text)(data, document.extension)
         run.characters = len(text)
         run.extract_ms = int((time.monotonic() - started) * 1000)
+        await progress(Stage.SPLITTING)
         sectioned, pieces, embed_inputs = split_document(text, document.name, cfg)
         if not pieces:
             raise ExtractionError("No readable text found (scanned PDFs need OCR first)")
@@ -141,12 +159,14 @@ async def process(document: Document, data: bytes | None = None,
         for i in range(0, len(pieces), batch):
             if i and not await Document.objects.filter(pk=document.pk).aexists():
                 raise Cancelled()
+            await progress(Stage.EMBEDDING, i, len(pieces))
             inputs = [prefix + piece for piece in embed_inputs[i : i + batch]]
             vectors.extend(await llm.embed(inputs))
         run.embed_ms = int((time.monotonic() - embed_started) * 1000)
 
         if not await Document.objects.filter(pk=document.pk).aexists():
             raise Cancelled()
+        await progress(Stage.SAVING, len(pieces), len(pieces))
         await Chunk.objects.filter(document=document).adelete()
         try:
             await Chunk.objects.abulk_create(

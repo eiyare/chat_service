@@ -1,14 +1,14 @@
 """Workspace admin page: knowledge-base report, uploads and document list."""
 from django.conf import settings
 from django.contrib import messages
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
 import llm
 from tenants.decorators import tenant_required
 
-from . import services
+from . import jobs, services
 from .models import Document, IndexingRun, embed_signature
 
 
@@ -29,9 +29,9 @@ async def admin_home(request):
         run = latest.get(d.pk)
         d.indexed_in = _secs(run["total_ms"]) if run and run["status"] == "ready" else "–"
         # Failed, or embedded with settings that no longer apply: offer a rebuild.
-        d.needs_rebuild = d.status == Document.Status.FAILED or (
+        d.needs_rebuild = not d.job and (d.status == Document.Status.FAILED or (
             d.status == Document.Status.READY and d.embed_signature != signature
-        )
+        ))
     return render(
         request,
         "rag/admin.html",
@@ -74,16 +74,24 @@ async def upload(request):
     for f in files:
         try:
             services.validate_upload(f.name, f.size, policy)  # reject before reading big files
-            document = await services.ingest(tenant, f.name, f.read())
+            document = await services.store(tenant, f.name, f.read())
         except services.UploadRejected as exc:
             messages.error(request, str(exc))
             continue
-        if document.status == Document.Status.READY:
-            n = document.chunk_count
-            messages.success(request, f"{document.name}: {n} chunk{'' if n == 1 else 's'} added.")
-        else:
-            messages.error(request, f"{document.name}: {document.error}")
+        # Splitting and embedding run in the background (rag/jobs.py), so big files can't time out.
+        await jobs.aenqueue(document, IndexingRun.Trigger.UPLOAD)
+        _report_outcome(request, document, "added")
     return redirect("rag:home", tenant_slug=tenant.slug)
+
+
+def _report_outcome(request, document, verb):
+    if document.job:
+        messages.info(request, f"{document.name}: processing. This page shows progress; you can leave it.")
+    elif document.status == Document.Status.READY:  # finished already (inline processing)
+        n = document.chunk_count
+        messages.success(request, f"{document.name}: {n} chunk{'' if n == 1 else 's'} {verb}.")
+    else:
+        messages.error(request, f"{document.name}: {document.error}")
 
 
 @require_POST
@@ -94,13 +102,22 @@ async def rebuild(request, pk):
         document = await Document.objects.aget(pk=pk, tenant=request.tenant)
     except Document.DoesNotExist:
         raise Http404("Document not found")
-    document = await services.process(document, trigger=IndexingRun.Trigger.REBUILD)
-    if document.status == Document.Status.READY:
-        n = document.chunk_count
-        messages.success(request, f"{document.name}: rebuilt, {n} chunk{'' if n == 1 else 's'}.")
+    if not await jobs.aenqueue(document, IndexingRun.Trigger.REBUILD):
+        messages.info(request, f"{document.name} is already being processed.")
     else:
-        messages.error(request, f"{document.name}: {document.error}")
+        _report_outcome(request, document, "rebuilt")
     return redirect("rag:home", tenant_slug=request.tenant.slug)
+
+
+@require_GET
+@tenant_required(admin=True)
+async def progress(request):
+    """Documents with a background job, for the Documents page to show progress."""
+    rows = [
+        {"id": d.pk, "label": d.job_label, "percent": d.job_percent}
+        async for d in Document.objects.filter(tenant=request.tenant).exclude(job="")
+    ]
+    return JsonResponse({"documents": rows})
 
 
 @require_POST

@@ -12,22 +12,22 @@ from django.utils.html import format_html
 
 from llm import get_config
 
-from . import services
+from . import jobs
 from .models import FAQ, Chunk, Document, embed_signature
 
 
 def _rebuild(modeladmin, request, documents):
-    ok = failed = 0
+    """Queue rebuilds as background jobs (rag/jobs.py) so the request can't time out."""
+    queued = busy = 0
     for document in documents:
-        result = async_to_sync(services.process)(document, trigger="rebuild")
-        if result.status == Document.Status.READY:
-            ok += 1
+        if jobs.enqueue(document, "rebuild"):
+            queued += 1
         else:
-            failed += 1
-            modeladmin.message_user(request, f"{document.name}: {result.error}", messages.ERROR)
+            busy += 1
+    note = f"; {busy} already being processed" if busy else ""
     modeladmin.message_user(
-        request, f"Rebuilt chunks for {ok} document{'' if ok == 1 else 's'}; {failed} failed.",
-        messages.SUCCESS if not failed else messages.WARNING,
+        request, f"Queued {queued} document{'' if queued == 1 else 's'} for rebuilding{note}. "
+                 "Progress shows on the workspace's Documents page.", messages.SUCCESS,
     )
 
 

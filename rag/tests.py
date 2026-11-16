@@ -629,13 +629,13 @@ class DocumentChunkManagementTests(MediaRootMixin, TestCase):
         chunk = doc.chunks.first()
         resp = self.client.post("/admin/rag/chunk/", {"action": "rebuild_documents", "index": 0,
                                                       "_selected_action": [chunk.pk]}, follow=True)
-        self.assertContains(resp, "Rebuilt chunks for 1 document")
+        self.assertContains(resp, "Queued 1 document for rebuilding")
         self.assertEqual(Chunk.objects.filter(document=doc).count(), n)
         self.assertEqual(self.report().chunks, n)
 
         resp = self.client.post("/admin/rag/document/", {"action": "rebuild_chunks", "index": 0,
                                                          "_selected_action": [doc.pk]}, follow=True)
-        self.assertContains(resp, "Rebuilt chunks for 1 document")
+        self.assertContains(resp, "Queued 1 document for rebuilding")
 
     def test_document_admin_columns_and_no_add(self):
         doc = self.add()
@@ -661,7 +661,7 @@ class DocumentChunkManagementTests(MediaRootMixin, TestCase):
         self.assertContains(page, "Rebuild down.txt")
 
         resp = self.client.post(f"/t/demo/admin/documents/{failed.pk}/rebuild/", follow=True)
-        self.assertContains(resp, "down.txt: rebuilt")
+        self.assertContains(resp, "chunks rebuilt.")
         self.assertEqual(Document.objects.get(pk=failed.pk).status, Document.Status.READY)
 
         with self.settings(LLM_EMBED_MODEL="prov/other"):
@@ -721,3 +721,83 @@ class SectionChunkingProcessTests(MediaRootMixin, TestCase):
             self.client.post("/t/acme/admin/documents/upload/",
                              {"files": [SimpleUploadedFile("p.txt", SectionChunkingTests.DOC.encode())]})
         self.assertFalse(Chunk.objects.exclude(section="").exists())
+
+
+@override_settings(RAG_CHUNK_SIZE=100, RAG_CHUNK_OVERLAP=10, RAG_EMBED_BATCH_SIZE=4, LLM_EMBED_MODEL="prov/embed",
+                   RAG_DOCUMENT_PREFIX="", RAG_QUERY_PREFIX="", LLM_CONFIG_CACHE_SECONDS=0,
+                   RAG_INLINE_PROCESSING=False)
+@mock.patch("llm.embed", fake_embed)
+@mock.patch("rag.jobs.kick")  # no worker thread in tests: jobs are run explicitly below
+class BackgroundProcessingTests(MediaRootMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        llm.invalidate()
+        self.demo = Tenant.objects.create(name="Demo Co", slug="demo")
+        self.body = " ".join(f"Fact {i} about the product." for i in range(60)).encode()
+
+    def upload(self):
+        return self.client.post("/t/demo/admin/documents/upload/",
+                                {"files": [SimpleUploadedFile("notes.txt", self.body)]}, follow=True)
+
+    def run_jobs(self):
+        from asgiref.sync import async_to_sync
+
+        from . import jobs
+        while async_to_sync(jobs.run_job)():
+            pass
+
+    def test_upload_returns_at_once_and_worker_finishes_it(self, kick):
+        resp = self.upload()
+        self.assertContains(resp, "notes.txt: processing")
+        kick.assert_called_once()
+        doc = Document.objects.get()
+        self.assertEqual((doc.status, doc.job, doc.chunk_count), (Document.Status.PROCESSING, "queued", 0))
+        self.assertContains(resp, f'data-job="{doc.pk}"')
+        self.assertEqual(self.client.get("/t/demo/admin/documents/progress/").json(),
+                         {"documents": [{"id": doc.pk, "label": "Queued", "percent": None}]})
+
+        self.run_jobs()
+        doc.refresh_from_db()
+        self.assertEqual((doc.status, doc.job), (Document.Status.READY, ""))
+        self.assertEqual(Chunk.objects.filter(document=doc).count(), doc.chunk_count)
+        self.assertEqual(self.client.get("/t/demo/admin/documents/progress/").json(), {"documents": []})
+        self.assertNotContains(self.client.get("/t/demo/admin/"), "data-job=")
+
+    def test_progress_is_recorded_while_embedding(self, kick):
+        self.upload()
+        doc = Document.objects.get()
+        seen = []
+
+        async def watching_embed(texts, purpose="document"):
+            d = await Document.objects.aget(pk=doc.pk)
+            seen.append((d.job, d.job_stage, d.job_done, d.job_total, d.job_label))
+            return await fake_embed(texts, purpose)
+
+        with mock.patch("llm.embed", watching_embed):
+            self.run_jobs()
+        self.assertGreater(len(seen), 1)
+        total = seen[0][3]
+        self.assertEqual(seen[0], ("running", "embedding", 0, total, f"Embedding passages 0 of {total}"))
+        self.assertEqual(seen[1][2], 4)  # one batch done
+
+    def test_rebuild_is_queued_once_and_document_stays_searchable(self, kick):
+        self.upload()
+        self.run_jobs()
+        doc = Document.objects.get()
+        resp = self.client.post(f"/t/demo/admin/documents/{doc.pk}/rebuild/", follow=True)
+        self.assertContains(resp, "notes.txt: processing")
+        resp = self.client.post(f"/t/demo/admin/documents/{doc.pk}/rebuild/", follow=True)
+        self.assertContains(resp, "already being processed")
+        doc.refresh_from_db()
+        self.assertEqual((doc.status, doc.job), (Document.Status.READY, "queued"))  # old chunks still used
+        self.assertTrue(Chunk.objects.filter(document=doc).exists())
+        self.run_jobs()
+        doc.refresh_from_db()
+        self.assertEqual((doc.status, doc.job), (Document.Status.READY, ""))
+
+    def test_progress_endpoint_is_per_workspace_and_admin_only(self, kick):
+        self.upload()
+        Tenant.objects.create(name="Other", slug="other")
+        self.assertEqual(self.client.get("/t/other/admin/documents/progress/").json(), {"documents": []})
+        self.client.logout()
+        self.assertNotEqual(self.client.get("/t/demo/admin/documents/progress/").status_code, 200)

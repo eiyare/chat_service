@@ -11,6 +11,7 @@ urlpatterns = [
     path("performance/", views.performance, name="performance"),
     path("embed/", widget_views.embed_settings, name="embed"),
     path("documents/upload/", views.upload, name="upload"),
+    path("documents/progress/", views.progress, name="progress"),
     path("documents/<int:pk>/delete/", views.delete, name="delete"),
     path("documents/<int:pk>/rebuild/", views.rebuild, name="rebuild"),
 ]

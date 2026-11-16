@@ -75,7 +75,7 @@
     <h2 id="docs-h" class="section-h">Documents <span class="count">{{ documents|length }}</span></h2>
     {% if documents %}
       <div class="table-wrap">
-        <table class="docs">
+        <table class="docs" data-progress-url="{% url 'rag:progress' tenant_slug=tenant.slug %}">
           <thead>
             <tr><th>Name</th><th class="num">Chunks</th><th class="num">Size</th><th class="num">Indexed in</th><th>Status</th><th>Added</th><th><span class="sr-only">Actions</span></th></tr>
           </thead>
@@ -86,7 +86,7 @@
                 <td class="num">{{ d.chunk_count }}</td>
                 <td class="num">{{ d.size|filesizeformat }}</td>
                 <td class="num">{{ d.indexed_in }}</td>
-                <td>{% if d.needs_rebuild and d.status == "ready" %}<span class="pill processing" title="Embedding settings changed since this was indexed">Needs rebuild</span>{% else %}<span class="pill {{ d.status }}"{% if d.error %} title="{{ d.error }}"{% endif %}>{{ d.get_status_display }}</span>{% endif %}</td>
+                <td>{% if d.job %}<span class="pill processing" data-job="{{ d.pk }}" role="status">{{ d.job_label }}{% if d.job_percent is not None %} · {{ d.job_percent }}%{% endif %}</span>{% elif d.needs_rebuild and d.status == "ready" %}<span class="pill processing" title="Embedding settings changed since this was indexed">Needs rebuild</span>{% else %}<span class="pill {{ d.status }}"{% if d.error %} title="{{ d.error }}"{% endif %}>{{ d.get_status_display }}</span>{% endif %}</td>
                 <td class="muted"><time datetime="{{ d.created_at|date:'c' }}">{{ d.created_at|date:"M j, Y" }}</time></td>
                 <td class="actions">
                   {% if d.needs_rebuild %}
