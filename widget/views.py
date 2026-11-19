@@ -15,7 +15,8 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from chat.models import Conversation, Message
 from chat.views import respond
-from rag.models import Document
+from rag import jobs, services
+from rag.models import Document, IndexingRun
 from tenants.decorators import tenant_required
 
 from . import moodle, ratelimit
@@ -23,6 +24,7 @@ from .forms import WidgetForm
 from .models import Widget
 
 _VISITOR = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+_ITEM_KEY = re.compile(r"^[a-z]+(:[A-Za-z0-9_-]+){0,3}$")
 
 
 async def _active_widget(key) -> Widget:
@@ -46,7 +48,9 @@ def _error(message, status):
 
 
 async def _visitor_request(request, key):
-    """Common checks for widget API calls. Returns (widget, body, visitor_id) or an error response."""
+    """Common checks for widget API calls. Returns (widget, body, visitor_id, course) or an
+    error response. ``course`` is the Moodle course a verified student is on (when the
+    workspace takes course content), else None."""
     widget = await _active_widget(key)
     if not _same_origin(request):
         return _error("Cross-origin requests are not allowed", 403)
@@ -59,11 +63,15 @@ async def _visitor_request(request, key):
     visitor_id = str(body.get("visitor_id") or "") if isinstance(body, dict) else ""
     if not _VISITOR.match(visitor_id) or visitor_id.startswith("moodle-"):  # reserved for verified students
         return _error("Invalid visitor", 400)
+    course = None
     if widget.moodle_enabled and body.get("user_token"):
         user = moodle.verify_user(widget.moodle_shared_code, body["user_token"])
         if user:  # signed by the Moodle plugin: same conversations on every device
+            if not widget.moodle_courses:
+                user["course"] = None
+            course = user["course"]
             visitor_id = moodle.visitor_id(user)
-    return widget, body, visitor_id
+    return widget, body, visitor_id, course
 
 
 @login_not_required  # public: shown to visitors of the customer's website
@@ -110,13 +118,13 @@ async def send(request, key):
     checked = await _visitor_request(request, key)
     if not isinstance(checked, tuple):
         return checked
-    widget, _, visitor_id = checked
+    widget, _, visitor_id, course = checked
     from siteconfig import conf
 
     await conf.aget(widget.tenant)  # load settings for sync access during the reply
     if not await ratelimit.allow(widget, request):
         return _error("You're sending messages too quickly. Please wait a moment.", 429)
-    return await respond(request, widget.tenant, Conversation.Source.WIDGET, visitor_id)
+    return await respond(request, widget.tenant, Conversation.Source.WIDGET, visitor_id, course=course)
 
 
 @login_not_required
@@ -126,7 +134,7 @@ async def history(request, key):
     checked = await _visitor_request(request, key)
     if not isinstance(checked, tuple):
         return checked
-    widget, body, visitor_id = checked
+    widget, body, visitor_id, _ = checked
     conversations = Conversation.objects.filter(
         tenant=widget.tenant, source=Conversation.Source.WIDGET, visitor_id=visitor_id,
     )
@@ -156,7 +164,8 @@ def _moodle_copy_widget(request, key):
 
 
 def _ready_documents(widget):
-    return Document.objects.filter(tenant=widget.tenant, status=Document.Status.READY)
+    return Document.objects.filter(tenant=widget.tenant, status=Document.Status.READY,
+                                   moodle_course_id__isnull=True)
 
 
 @login_not_required  # server-to-server: the Moodle plugin authenticates with the shared code
@@ -185,6 +194,112 @@ def moodle_chunks(request, key, pk):
     chunks = [{"index": c.index, "section": c.section, "text": c.text}
               for c in doc.chunks.order_by("index").only("index", "section", "text")]
     return JsonResponse({"id": doc.pk, "name": doc.name, "chunks": chunks})
+
+
+# --- Course content from the Moodle plugin ------------------------------------------
+# The plugin's hourly task sends each course's activities, files, forum posts and dates.
+# Every item becomes a document tagged with its course; students on that course's pages
+# are answered from those documents only (chat.views.respond).
+
+
+async def _moodle_course_widget(request, key):
+    """The widget taking course content from the plugin, or an error response."""
+    try:
+        widget = await Widget.objects.select_related("tenant").aget(public_key=key, moodle_enabled=True,
+                                                                    tenant__is_active=True)
+    except Widget.DoesNotExist:
+        raise Http404("Not found")
+    if not moodle.check_shared_code(widget, request):
+        return _error("Wrong shared code", 403)
+    if not widget.moodle_courses:
+        return _error("Course content is turned off for this workspace", 409)
+    return widget
+
+
+def _course_documents(widget, course=None):
+    documents = Document.objects.filter(tenant=widget.tenant, moodle_course_id__isnull=False)
+    return documents if course is None else documents.filter(moodle_course_id=course)
+
+
+@login_not_required  # server-to-server: the Moodle plugin authenticates with the shared code
+@require_GET
+async def moodle_courses(request, key):
+    """IDs of the courses whose content saaschat holds."""
+    widget = await _moodle_course_widget(request, key)
+    if not isinstance(widget, Widget):
+        return widget
+    ids = [c async for c in _course_documents(widget).order_by().values_list("moodle_course_id", flat=True).distinct()]
+    return JsonResponse({"courses": sorted(ids)})
+
+
+@login_not_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+async def moodle_course_items(request, key, course):
+    """GET: the course's items {key: version}, and the file types and size accepted.
+    POST (multipart: key, version, name, file): add or replace one item; it is processed
+    in the background, and searchable once ready."""
+    widget = await _moodle_course_widget(request, key)
+    if not isinstance(widget, Widget):
+        return widget
+    policy = widget.tenant.upload_policy
+    if request.method == "GET":
+        items = {k: v async for k, v in _course_documents(widget, course).values_list("moodle_key", "moodle_version")}
+        return JsonResponse({"items": items, "extensions": list(services.course_item_extensions(policy)),
+                             "max_file_bytes": policy.max_file_bytes})
+    item_key = request.POST.get("key", "")
+    upload = request.FILES.get("file")
+    if not _ITEM_KEY.match(item_key) or len(item_key) > 100:
+        return _error("Invalid key", 400)
+    if upload is None:
+        return _error("No file", 400)
+    if upload.size > policy.max_file_bytes:
+        return _error(f"{upload.name}: larger than the {policy.max_file_mb} MB limit", 413)
+    try:
+        document = await services.store_course_item(
+            widget.tenant, course, item_key, request.POST.get("version", ""), request.POST.get("name", "").strip(),
+            upload.name, upload.read(),
+        )
+    except services.UploadRejected as exc:
+        return _error(str(exc), 400)
+    await jobs.aenqueue(document, IndexingRun.Trigger.UPLOAD)
+    return JsonResponse({"id": document.pk, "status": document.status}, status=202)
+
+
+@login_not_required
+@csrf_exempt
+@require_POST
+async def moodle_course_items_delete(request, key, course):
+    """Remove items from a course. JSON body: {"keys": [...]}."""
+    widget = await _moodle_course_widget(request, key)
+    if not isinstance(widget, Widget):
+        return widget
+    try:
+        keys = json.loads(request.body or b"{}").get("keys")
+    except (ValueError, AttributeError):
+        keys = None
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        return _error("Expected {\"keys\": [...]}", 400)
+    deleted = 0
+    async for document in _course_documents(widget, course).filter(moodle_key__in=keys):
+        await services.delete_document(document)
+        deleted += 1
+    return JsonResponse({"deleted": deleted})
+
+
+@login_not_required
+@csrf_exempt
+@require_POST
+async def moodle_course_delete(request, key, course):
+    """Remove all of a course's content (it is no longer sent from Moodle)."""
+    widget = await _moodle_course_widget(request, key)
+    if not isinstance(widget, Widget):
+        return widget
+    deleted = 0
+    async for document in _course_documents(widget, course):
+        await services.delete_document(document)
+        deleted += 1
+    return JsonResponse({"deleted": deleted})
 
 
 @require_http_methods(["GET", "POST"])

@@ -2,7 +2,8 @@
 
 The plugin signs the logged-in student with the widget's shared code:
 
-    payload = base64url(JSON {"sub": <Moodle user id>, "name": <full name>, "exp": <unix time>})
+    payload = base64url(JSON {"sub": <Moodle user id>, "name": <full name>, "exp": <unix time>,
+                              "course": <course ID, only on the pages of a course the student can access>})
     token   = payload + "." + hex(HMAC-SHA256(shared code, payload))
 
 In PHP: hash_hmac('sha256', $payload, $code).
@@ -21,14 +22,17 @@ def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def sign_user(code: str, user_id, name: str, ttl: int = 12 * 3600) -> str:
+def sign_user(code: str, user_id, name: str, ttl: int = 12 * 3600, course=None) -> str:
     """Make a token the way the plugin does (used by tests and diagnostics)."""
-    payload = _b64(json.dumps({"sub": user_id, "name": name, "exp": int(time.time()) + ttl}).encode())
+    data = {"sub": user_id, "name": name, "exp": int(time.time()) + ttl}
+    if course is not None:
+        data["course"] = course
+    payload = _b64(json.dumps(data).encode())
     return payload + "." + hmac.new(code.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
 def verify_user(code: str, token) -> dict | None:
-    """{"id": "...", "name": "..."} for a valid, unexpired token, else None."""
+    """{"id": "...", "name": "...", "course": int | None} for a valid, unexpired token, else None."""
     if not code or not isinstance(token, str) or token.count(".") != 1 or len(token) > 2000:
         return None
     payload, signature = token.split(".")
@@ -38,16 +42,20 @@ def verify_user(code: str, token) -> dict | None:
     try:
         data = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
         user_id, exp = str(data["sub"]), int(data["exp"])
-    except (ValueError, KeyError, TypeError, binascii.Error):
+        course = data.get("course")
+        course = None if course in (None, "") else int(course)
+    except (ValueError, KeyError, TypeError, AttributeError, binascii.Error):
         return None
-    if exp < time.time() or not user_id.isdigit():
+    if exp < time.time() or not user_id.isdigit() or (course is not None and course <= 0):
         return None
-    return {"id": user_id, "name": str(data.get("name") or "")[:MAX_NAME]}
+    return {"id": user_id, "name": str(data.get("name") or "")[:MAX_NAME], "course": course}
 
 
 def visitor_id(user: dict) -> str:
-    """Stable widget visitor ID for a Moodle student (matches the visitor ID format)."""
-    return f"moodle-user-{user['id'].zfill(8)}"
+    """Stable widget visitor ID for a Moodle student (matches the visitor ID format).
+    Each course gets its own conversations (pass a user dict without "course" for general ones)."""
+    base = f"moodle-user-{user['id'].zfill(8)}"
+    return f"{base}-c{user['course']}" if user.get("course") else base
 
 
 def check_shared_code(widget, request) -> bool:

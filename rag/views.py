@@ -16,7 +16,8 @@ from .models import Document, IndexingRun, embed_signature
 @tenant_required(admin=True)
 async def admin_home(request):
     tenant = request.tenant
-    documents = [d async for d in Document.objects.filter(tenant=tenant)]
+    # Moodle course content is managed by the plugin, not here.
+    documents = [d async for d in Document.objects.filter(tenant=tenant, moodle_course_id__isnull=True)]
     llm_config = await llm.aget_config()
     policy = tenant.upload_policy
     signature = embed_signature(llm_config)

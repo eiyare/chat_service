@@ -35,13 +35,21 @@ class Results(list):
     best_score: float | None = None
 
 
-def _searchable(tenant, config):
-    """Chunks of ready documents embedded with the current embedding configuration."""
+def _searchable(tenant, config, course=None):
+    """Chunks of ready documents embedded with the current embedding configuration: the
+    workspace's own documents, or with ``course`` (a Moodle course ID) that course's content."""
     return Chunk.objects.filter(
         tenant=tenant,
         document__status=Document.Status.READY,
         document__embed_signature=embed_signature(config),
+        **_scope(course, "document__"),
     )
+
+
+def _scope(course, prefix=""):
+    if course is None:
+        return {f"{prefix}moodle_course_id__isnull": True}
+    return {f"{prefix}moodle_course_id": course}
 
 
 class KB:
@@ -52,19 +60,19 @@ class KB:
     NEEDS_REINDEX = "needs_reindex"           # documents exist, embedded differently
 
 
-async def kb_status(tenant) -> str:
+async def kb_status(tenant, course=None) -> str:
     config = await llm.aget_config()
     if not config.embed_model:
         return KB.NO_EMBEDDING_MODEL
-    if await _searchable(tenant, config).aexists():
+    if await _searchable(tenant, config, course).aexists():
         return KB.READY
-    if await Document.objects.filter(tenant=tenant, status=Document.Status.READY).aexists():
+    if await Document.objects.filter(tenant=tenant, status=Document.Status.READY, **_scope(course)).aexists():
         return KB.NEEDS_REINDEX
     return KB.NO_DOCUMENTS
 
 
-async def has_documents(tenant) -> bool:
-    return await kb_status(tenant) == KB.READY
+async def has_documents(tenant, course=None) -> bool:
+    return await kb_status(tenant, course) == KB.READY
 
 
 async def embed_queries(queries: list[str]) -> list[list[float]]:
@@ -74,7 +82,7 @@ async def embed_queries(queries: list[str]) -> list[list[float]]:
 
 
 async def search(tenant, queries: list[str], top_k: int | None = None,
-                 min_score: float | None = None, query_vectors=None) -> list[Passage]:
+                 min_score: float | None = None, query_vectors=None, course=None) -> list[Passage]:
     """Return the passages that answer ``queries``, best first (hybrid search).
 
     Candidates come from two routes:
@@ -86,6 +94,9 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
     All candidates must then pass the term-overlap check (_lexical_filter).
     Passages matching more of the question's terms rank first, then by
     similarity. Raises llm.LLMError if the query cannot be embedded.
+
+    ``course`` (a Moodle course ID) searches that course's content instead of the
+    workspace's documents.
     """
     cfg = await conf.aget(tenant)
     top_k = cfg.top_k if top_k is None else top_k
@@ -95,7 +106,7 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
 
     config = await llm.aget_config()
     min_score = config.doc_cutoff if min_score is None else min_score
-    rows = [r async for r in _searchable(tenant, config).values_list("id", "embedding", "dimensions")]
+    rows = [r async for r in _searchable(tenant, config, course).values_list("id", "embedding", "dimensions")]
     if not rows:
         return []
 
@@ -121,7 +132,8 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
     # Over-fetch so the lexical filter can drop candidates without starving the result.
     order = np.argsort(-scores)[: top_k * 3]
     best = {int(ids[i]): float(scores[i]) for i in order if scores[i] >= min_score}
-    for cid in await _keyword_candidates(tenant, config, queries, limit=top_k * 3, threshold=cfg.keyword_min_coverage):
+    for cid in await _keyword_candidates(tenant, config, queries, limit=top_k * 3, threshold=cfg.keyword_min_coverage,
+                                         course=course):
         if cid in score_of:
             best.setdefault(cid, score_of[cid])
     if not best:
@@ -172,7 +184,7 @@ def keyword_coverage(query_terms: list[set], text: str) -> float:
     return max(len(t & chunk_terms) / len(t) for t in query_terms)
 
 
-async def _keyword_candidates(tenant, config, queries, limit, threshold) -> list[int]:
+async def _keyword_candidates(tenant, config, queries, limit, threshold, course=None) -> list[int]:
     """Chunk IDs containing at least ``threshold`` (keyword search coverage) of a query's terms."""
     if threshold <= 0:
         return []
@@ -183,7 +195,7 @@ async def _keyword_candidates(tenant, config, queries, limit, threshold) -> list
     prefilter = Q()
     for term in set().union(*query_terms):
         prefilter |= Q(text__icontains=term[:4] if len(term) > 4 else term)
-    rows = [r async for r in _searchable(tenant, config).filter(prefilter).values_list("id", "text")[:500]]
+    rows = [r async for r in _searchable(tenant, config, course).filter(prefilter).values_list("id", "text")[:500]]
     ranked = []
     for cid, text in rows:
         best = keyword_coverage(query_terms, text)

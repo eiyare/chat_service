@@ -33,6 +33,7 @@
   var userName = String(user.name || "").trim().slice(0, 80);
   if (user.sub) {  // each student's chat kept apart from guests and others on a shared computer
     convKey += ":u" + String(user.sub);
+    if (user.course) convKey += ":c" + String(user.course);  // and each course's chat from the others
     conversationId = load(convKey);
   }
 

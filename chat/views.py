@@ -148,12 +148,13 @@ async def api_send(request):
     return await respond(request, request.tenant, user=request.user)
 
 
-async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None):
+async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None, course=None):
     """Answer a question strictly from the workspace's documents, streamed as NDJSON.
 
     Shared by the workspace chat and the website widget (source/visitor_id scope
     which conversations the caller may continue; the widget always uses the
-    default model).
+    default model). ``course``: a student on a Moodle course's pages, answered
+    from that course's content only (no workspace documents or FAQs).
 
     1. Retrieve the most relevant document chunks for the question.
     2. If none are relevant enough, reply with a fixed "not in the documents"
@@ -215,8 +216,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             # Follow-ups ("and the second one?") need the earlier question for context.
             previous_text = persona.search_text(previous.content, name)
             queries.append(f"{previous_text}\n{search}")
-    kb_status = await retrieval.kb_status(tenant)
-    faqs = await faq.enabled_for(tenant)
+    kb_status = await retrieval.kb_status(tenant, course)
+    faqs = [] if course is not None else await faq.enabled_for(tenant)
     passages = retrieval.Results()
     faq_hit = None
     retrieval_ms = None
@@ -244,7 +245,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             if faq_hit is None:
                 # 3. Document search, plus close FAQs as extra context for the model.
                 if kb_status == retrieval.KB.READY:
-                    passages = await retrieval.search(tenant, queries, query_vectors=query_vectors)
+                    passages = await retrieval.search(tenant, queries, query_vectors=query_vectors, course=course)
                 faq_context = faq.context_passages(query_vectors[original], indexed, llm_config.faq_context_cutoff)
                 if faq_context:
                     best = passages.best_score

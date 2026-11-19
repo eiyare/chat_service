@@ -4,11 +4,13 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * The widget's <script> tag, with the signed-in student signed by the shared code.
  *
- * Token: base64url(JSON {sub, name, exp}) . "." . hex HMAC-SHA256(shared code, payload).
+ * Token: base64url(JSON {sub, name, exp[, course]}) . "." . hex HMAC-SHA256(shared code, payload).
  * Guests and visitors who aren't logged in get no token and are greeted as "Guest".
+ * On the pages of a course whose content is sent to saaschat, and which the student can
+ * access, the token names the course: answers then come from that course only.
  */
 function local_saaschat_widget_html(): string {
-    global $USER;
+    global $USER, $PAGE;
     if (during_initial_install() || (defined('AJAX_SCRIPT') && AJAX_SCRIPT) || CLI_SCRIPT) {
         return '';
     }
@@ -20,11 +22,16 @@ function local_saaschat_widget_html(): string {
     $attributes = ['src' => $server . '/static/widget/embed.js', 'data-key' => $key, 'async' => 'async'];
     $code = (string) get_config('local_saaschat', 'sharedcode');
     if ($code !== '' && isloggedin() && !isguestuser()) {
-        $payload = rtrim(strtr(base64_encode(json_encode([
+        $data = [
             'sub' => (int) $USER->id,
             'name' => fullname($USER),
             'exp' => time() + 12 * HOURSECS,
-        ])), '+/', '-_'), '=');
+        ];
+        $course = $PAGE->course ?? null;
+        if ($course && \local_saaschat\course_content::is_synced($course) && can_access_course($course, null, '', true)) {
+            $data['course'] = (int) $course->id;
+        }
+        $payload = rtrim(strtr(base64_encode(json_encode($data)), '+/', '-_'), '=');
         $attributes['data-user'] = $payload . '.' . hash_hmac('sha256', $payload, $code);
     }
     return html_writer::tag('script', '', $attributes);

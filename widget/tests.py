@@ -221,7 +221,11 @@ class MoodleTests(TestCase):
 
     def test_token_verification(self):
         token = moodle.sign_user(self.code, 42, "Ada Lovelace")
-        self.assertEqual(moodle.verify_user(self.code, token), {"id": "42", "name": "Ada Lovelace"})
+        self.assertEqual(moodle.verify_user(self.code, token), {"id": "42", "name": "Ada Lovelace", "course": None})
+        with_course = moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course=7))
+        self.assertEqual(with_course["course"], 7)
+        self.assertIsNone(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course="x")))
+        self.assertIsNone(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course=-1)))
         payload, sig = token.split(".")
         self.assertIsNone(moodle.verify_user("other-code", token))
         self.assertIsNone(moodle.verify_user(self.code, payload + "." + "0" * 64))
@@ -279,3 +283,115 @@ class MoodleTests(TestCase):
 
     def test_greeting_default_has_name_placeholder(self):
         self.assertContains(self.client.get(self.base), "Hi {name}!")
+
+
+@override_settings(RAG_INLINE_PROCESSING=True, LLM_PROVIDERS=[], LLM_ENABLED_MODELS=[], LLM_EMBED_MODEL="test/embed",
+                   RAG_QUERY_PREFIX="", LLM_CONFIG_CACHE_SECONDS=0, RAG_NO_ANSWER_MESSAGE="NOT IN DOCS",
+                   CHAT_TOKEN_ALLOWANCE=0)
+@mock.patch("llm.embed", fake_embed)
+class MoodleCourseTests(TestCase):
+    """Course content sent by the plugin, and answers scoped to the student's course."""
+
+    def setUp(self):
+        llm.invalidate()
+        cache.clear()
+        self.t = Tenant.objects.create(name="Acme", slug="acme")
+        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com",
+                                       moodle_enabled=True, moodle_courses=True)
+        FAQ.objects.create(tenant=self.t, question="What are your opening hours?", answer="9 to 5, Monday to Friday.")
+        self.code = self.w.moodle_shared_code
+        self.base = f"/w/{self.w.public_key}/moodle/courses/"
+        self.auth = {"HTTP_AUTHORIZATION": f"Bearer {self.code}"}
+
+    def put_item(self, course, key, text, version="v1", name="Item", filename="item.md", **extra):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        data = {"key": key, "version": version, "name": name,
+                "file": SimpleUploadedFile(filename, text.encode(), content_type="text/markdown")}
+        return self.client.post(f"{self.base}{course}/items/", data, **{**self.auth, **extra})
+
+    def search(self, question, course=None):
+        from rag import retrieval
+
+        return [p.document for p in async_to_sync(retrieval.search)(self.t, [question], course=course, min_score=0.5)]
+
+    def test_requires_shared_code_and_course_content_on(self):
+        self.assertEqual(self.client.get(self.base).status_code, 403)
+        self.assertEqual(self.put_item(7, "cm:1", "x", HTTP_AUTHORIZATION="Bearer wrong").status_code, 403)
+        Widget.objects.filter(pk=self.w.pk).update(moodle_courses=False)
+        self.assertEqual(self.client.get(self.base, **self.auth).status_code, 409)
+        self.assertEqual(self.put_item(7, "cm:1", "x").status_code, 409)
+        Widget.objects.filter(pk=self.w.pk).update(moodle_enabled=False)
+        self.assertEqual(self.client.get(self.base, **self.auth).status_code, 404)
+
+    def test_items_added_listed_replaced_and_removed(self):
+        resp = self.put_item(7, "cm:1", "# Week 1\nLate work loses 10% a day.", name="Week 1 (Page)")
+        self.assertEqual(resp.status_code, 202)
+        self.put_item(7, "cm:2", "Quiz 1 closes on Friday.", name="Quiz 1")
+        self.put_item(8, "cm:1", "Another course.", name="Other")
+        self.assertEqual(self.client.get(self.base, **self.auth).json()["courses"], [7, 8])
+        listing = self.client.get(f"{self.base}7/items/", **self.auth).json()
+        self.assertEqual(listing["items"], {"cm:1": "v1", "cm:2": "v1"})
+        self.assertIn("md", listing["extensions"])
+
+        doc = Document.objects.get(moodle_course_id=7, moodle_key="cm:1")
+        self.assertEqual((doc.status, doc.name), (Document.Status.READY, "Week 1 (Page)"))
+
+        self.put_item(7, "cm:1", "Late work loses 5% a day.", version="v2", name="Week 1 (Page)")
+        self.assertEqual(Document.objects.filter(moodle_course_id=7, moodle_key="cm:1").count(), 1)
+        self.assertIn("5%", Chunk.objects.get(document__moodle_key="cm:1", document__moodle_course_id=7).text)
+
+        resp = self.client.post(f"{self.base}7/items/delete/", json.dumps({"keys": ["cm:2", "cm:99"]}),
+                                content_type="application/json", **self.auth)
+        self.assertEqual(resp.json(), {"deleted": 1})
+        self.assertEqual(self.client.post(f"{self.base}8/delete/", **self.auth).json(), {"deleted": 1})
+        self.assertEqual(self.client.get(self.base, **self.auth).json()["courses"], [7])
+
+    def test_bad_items_rejected(self):
+        self.assertEqual(self.put_item(7, "Bad Key!", "x").status_code, 400)
+        self.assertEqual(self.put_item(7, "cm:1", "x", filename="slides.exe").status_code, 400)
+        self.assertEqual(self.put_item(7, "cm:1", "").status_code, 400)
+        self.assertFalse(Document.objects.exists())
+
+    def test_course_content_kept_apart_from_workspace_documents(self):
+        self.put_item(7, "cm:1", "Late work loses 10% a day.", name="Course 7 rules")
+        self.put_item(8, "cm:1", "Late work loses 50% a day.", name="Course 8 rules")
+        self.assertEqual(self.search("late work", course=7), ["Course 7 rules"])
+        self.assertEqual(self.search("late work", course=8), ["Course 8 rules"])
+        self.assertEqual(self.search("late work"), [])  # the workspace chat never sees course content
+        # Not in the workspace's document list, limit or passage copy.
+        self.assertNotContains(self.client.get("/t/acme/admin/"), "Course 7 rules")
+        Widget.objects.filter(pk=self.w.pk).update(chunk_storage=Widget.ChunkStorage.MIRROR)
+        copy = self.client.get(f"/w/{self.w.public_key}/moodle/documents/", **self.auth).json()
+        self.assertEqual(copy["documents"], [])
+
+    def test_same_file_in_two_courses_and_in_the_workspace(self):
+        from rag import services
+
+        async_to_sync(services.ingest)(self.t, "rules.txt", b"Late work loses 10% a day.")
+        self.assertEqual(self.put_item(7, "file:1", "Late work loses 10% a day.").status_code, 202)
+        self.assertEqual(self.put_item(8, "file:1", "Late work loses 10% a day.").status_code, 202)
+        self.assertEqual(Document.objects.count(), 3)
+
+    def ask(self, token, question="What are your opening hours?"):
+        resp = self.client.post(f"/w/{self.w.public_key}/api/send/", json.dumps(
+            {"message": question, "visitor_id": V1, "user_token": token}), content_type="application/json")
+        events = [json.loads(l) for l in async_to_sync(_read)(resp).decode().splitlines()]
+        return Conversation.objects.latest("pk"), events
+
+    def test_students_on_a_course_page_get_that_course_only(self):
+        # Outside a course: the workspace's FAQ answers.
+        conv, events = self.ask(moodle.sign_user(self.code, 42, "Ada"))
+        self.assertEqual(conv.visitor_id, "moodle-user-00000042")
+        self.assertTrue(events[-1]["faq"])
+        # On course 7's pages: its own conversations, and no workspace FAQs or documents.
+        conv, events = self.ask(moodle.sign_user(self.code, 42, "Ada", course=7))
+        self.assertEqual(conv.visitor_id, "moodle-user-00000042-c7")
+        self.assertFalse(events[-1]["faq"])
+        self.assertEqual(conv.messages.get(role="assistant").outcome, Message.Outcome.UNAVAILABLE)
+
+    def test_course_ignored_when_course_content_off(self):
+        Widget.objects.filter(pk=self.w.pk).update(moodle_courses=False)
+        conv, events = self.ask(moodle.sign_user(self.code, 42, "Ada", course=7))
+        self.assertEqual(conv.visitor_id, "moodle-user-00000042")
+        self.assertTrue(events[-1]["faq"])

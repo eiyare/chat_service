@@ -74,6 +74,11 @@ class Widget(models.Model):
         help_text="Search always runs in saaschat. With a copy in Moodle, the plugin downloads the "
                   "document passages to the Moodle database every hour.",
     )
+    moodle_courses = models.BooleanField(
+        "Course content", default=False,
+        help_text="Let the plugin send course content (activities, files, forum posts and dates) so students "
+                  "on a course's pages get answers from that course only.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

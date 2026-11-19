@@ -6,16 +6,16 @@ from .models import Widget
 
 @admin.register(Widget)
 class WidgetAdmin(admin.ModelAdmin):
-    list_display = ("tenant", "enabled", "title", "domain_list", "moodle_enabled", "chunk_storage",
+    list_display = ("tenant", "enabled", "title", "domain_list", "moodle_enabled", "moodle_courses", "chunk_storage",
                     "rate_limit_per_minute", "updated_at")
     list_editable = ("enabled",)
-    list_filter = ("enabled", "moodle_enabled", "chunk_storage")
+    list_filter = ("enabled", "moodle_enabled", "moodle_courses", "chunk_storage")
     search_fields = ("tenant__name", "allowed_domains")
     actions = ["regenerate_moodle_code"]
     fieldsets = (
         (None, {"fields": ("tenant", "enabled", "title", "greeting", "accent_color", "position", "allowed_domains",
                            "rate_limit_per_minute", "public_key")}),
-        ("Moodle", {"fields": ("moodle_enabled", "moodle_shared_code", "chunk_storage")}),
+        ("Moodle", {"fields": ("moodle_enabled", "moodle_shared_code", "chunk_storage", "moodle_courses")}),
     )
 
     def get_readonly_fields(self, request, obj=None):
