@@ -79,4 +79,20 @@ class RewriteTests(TestCase):
             {"message": "And on Saturday?", "model": "p/chat", "conversation_id": cid}), content_type="application/json")
         rewrite_call = [c for c in CALLS if "search query" in c[0]["content"]][-1]
         self.assertEqual(rewrite_call[1]["content"],
-                         "Earlier question: What time do you close on Friday?\nLatest question: And on Saturday?")
+                         "Earlier question: What time do you close on Friday?\n"
+                         "Assistant's answer: On Friday we close at 23:15.\n"  # citation numbers dropped
+                         "Latest question: And on Saturday?")
+
+    def test_rewrite_input(self):
+        from chat.rewrite import MAX_ANSWER_CHARS, rewrite_input
+
+        self.assertEqual(rewrite_input("What is X?"), "What is X?")
+        self.assertEqual(rewrite_input("yes", "What is module 3 about?", "It covers RTCF. Want more?",
+                                       page="Module 3: Anatomy of a Great Prompt (Page)"),
+                         "Page the user is viewing: Module 3: Anatomy of a Great Prompt (Page)\n"
+                         "Earlier question: What is module 3 about?\n"
+                         "Assistant's answer: It covers RTCF. Want more?\n"
+                         "Latest question: yes")
+        long = rewrite_input("yes", "Q?", "word " * 1000)
+        self.assertLess(len(long), MAX_ANSWER_CHARS + 100)
+        self.assertNotIn("Assistant's answer", rewrite_input("yes", None, "An answer"))  # no question, no answer

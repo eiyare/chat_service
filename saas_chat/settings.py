@@ -530,7 +530,9 @@ RAG_REWRITE_PROMPT = env_str(
     "Rewrite the user's latest question as a short search query for finding the answer in a collection of "
     "documents. Use plain English keywords, expand abbreviations, translate Nigerian Pidgin into English, add the "
     "wording a document would likely use (for example \"opening hours\" for \"what time do you close\"), and resolve "
-    "references to the earlier question. Do not add company or brand names the user did not mention. "
+    "references to the earlier question, the assistant's answer and the page the user is viewing (for example "
+    "\"yes\" after an offer to say more, \"the second one\", or \"this module\"). Do not add company or brand names "
+    "the user did not mention. "
     "Reply with the query only.",
 )
 # Passages whose similarity is at least this many times the embedding model's

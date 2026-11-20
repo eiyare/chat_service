@@ -55,8 +55,10 @@ in saaschat.
 
 On the pages of a chosen course, the assistant answers signed-in students from that course's
 content only (not the workspace's documents or FAQs), and keeps a separate conversation for each
-course. Elsewhere in Moodle it answers from the workspace's documents as before. Dates are the
-course's default dates; per-student extensions and overrides are not reflected.
+course. On an activity's pages it also knows which activity the student is viewing, so questions
+like "what is this module about?" are answered from that activity. Elsewhere in Moodle it answers
+from the workspace's documents as before. Dates are the course's default dates; per-student
+extensions and overrides are not reflected.
 
 To send the content now instead of waiting:
 `php admin/cli/scheduled_task.php --execute='\local_saaschat\task\sync_courses'`

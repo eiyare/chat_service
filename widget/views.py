@@ -48,9 +48,9 @@ def _error(message, status):
 
 
 async def _visitor_request(request, key):
-    """Common checks for widget API calls. Returns (widget, body, visitor_id, course) or an
-    error response. ``course`` is the Moodle course a verified student is on (when the
-    workspace takes course content), else None."""
+    """Common checks for widget API calls. Returns (widget, body, visitor_id, course, activity)
+    or an error response. ``course`` is the Moodle course a verified student is on (when the
+    workspace takes course content), else None; ``activity`` the course module they're viewing."""
     widget = await _active_widget(key)
     if not _same_origin(request):
         return _error("Cross-origin requests are not allowed", 403)
@@ -63,15 +63,16 @@ async def _visitor_request(request, key):
     visitor_id = str(body.get("visitor_id") or "") if isinstance(body, dict) else ""
     if not _VISITOR.match(visitor_id) or visitor_id.startswith("moodle-"):  # reserved for verified students
         return _error("Invalid visitor", 400)
-    course = None
+    course = activity = None
     if widget.moodle_enabled and body.get("user_token"):
         user = moodle.verify_user(widget.moodle_shared_code, body["user_token"])
         if user:  # signed by the Moodle plugin: same conversations on every device
             if not widget.moodle_courses:
                 user["course"] = None
             course = user["course"]
+            activity = user["activity"] if course is not None else None
             visitor_id = moodle.visitor_id(user)
-    return widget, body, visitor_id, course
+    return widget, body, visitor_id, course, activity
 
 
 @login_not_required  # public: shown to visitors of the customer's website
@@ -118,13 +119,14 @@ async def send(request, key):
     checked = await _visitor_request(request, key)
     if not isinstance(checked, tuple):
         return checked
-    widget, _, visitor_id, course = checked
+    widget, _, visitor_id, course, activity = checked
     from siteconfig import conf
 
     await conf.aget(widget.tenant)  # load settings for sync access during the reply
     if not await ratelimit.allow(widget, request):
         return _error("You're sending messages too quickly. Please wait a moment.", 429)
-    return await respond(request, widget.tenant, Conversation.Source.WIDGET, visitor_id, course=course)
+    return await respond(request, widget.tenant, Conversation.Source.WIDGET, visitor_id, course=course,
+                         activity=activity)
 
 
 @login_not_required
@@ -134,7 +136,7 @@ async def history(request, key):
     checked = await _visitor_request(request, key)
     if not isinstance(checked, tuple):
         return checked
-    widget, body, visitor_id, _ = checked
+    widget, body, visitor_id, *_ = checked
     conversations = Conversation.objects.filter(
         tenant=widget.tenant, source=Conversation.Source.WIDGET, visitor_id=visitor_id,
     )

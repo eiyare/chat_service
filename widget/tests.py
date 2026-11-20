@@ -221,7 +221,12 @@ class MoodleTests(TestCase):
 
     def test_token_verification(self):
         token = moodle.sign_user(self.code, 42, "Ada Lovelace")
-        self.assertEqual(moodle.verify_user(self.code, token), {"id": "42", "name": "Ada Lovelace", "course": None})
+        self.assertEqual(moodle.verify_user(self.code, token),
+                         {"id": "42", "name": "Ada Lovelace", "course": None, "activity": None})
+        on_page = moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course=7, activity=3))
+        self.assertEqual((on_page["course"], on_page["activity"]), (7, 3))
+        self.assertIsNone(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", activity=3))["activity"])
+        self.assertIsNone(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course=7, activity=-3)))
         with_course = moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course=7))
         self.assertEqual(with_course["course"], 7)
         self.assertIsNone(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course="x")))
@@ -389,6 +394,32 @@ class MoodleCourseTests(TestCase):
         self.assertEqual(conv.visitor_id, "moodle-user-00000042-c7")
         self.assertFalse(events[-1]["faq"])
         self.assertEqual(conv.messages.get(role="assistant").outcome, Message.Outcome.UNAVAILABLE)
+
+    @override_settings(RAG_REWRITE_QUERIES=True)
+    def test_this_module_means_the_page_the_student_is_viewing(self):
+        calls = []
+
+        async def fake_stream(model, messages, temperature=None, max_tokens=None):
+            calls.append(messages)
+            yield {"type": "content", "text": "search words" if "search query" in messages[0]["content"] else "OK"}
+            yield {"type": "done", "prompt_tokens": 1, "completion_tokens": 1}
+
+        self.put_item(7, "overview", "Modules 1 to 8.", name="Prompting: course overview and schedule")
+        self.put_item(7, "cm:3", "The RTCF framework: role, task, context, format.", name="Module 3 (Page)")
+        self.put_item(7, "cm:8", "Fix a prompt instead of restarting it.", name="Module 8 (Page)")
+        self.put_item(7, "cm:9", "More about module 8.", name="Module 9 (Page)")
+        with mock.patch("llm.stream_chat", fake_stream):
+            _, events = self.ask(moodle.sign_user(self.code, 42, "Ada", course=7, activity=3),
+                                 "What is this module about?")
+        sources = next(e for e in events if e["type"] == "sources")["sources"]
+        self.assertEqual(sources[0]["document"], "Module 3 (Page)")  # the page comes first
+        self.assertEqual(sum(s["document"] == "Module 3 (Page)" for s in sources), 1)  # and only once
+        question = calls[-1][-1]["content"]
+        self.assertIn('The student is in the course "Prompting".', question)
+        self.assertIn('They are viewing "Module 3 (Page)"', question)
+        self.assertIn("Today is ", question)
+        rewrite = next(c for c in calls if "search query" in c[0]["content"])
+        self.assertIn("Page the user is viewing: Module 3 (Page)", rewrite[1]["content"])
 
     def test_course_ignored_when_course_content_off(self):
         Widget.objects.filter(pk=self.w.pk).update(moodle_courses=False)

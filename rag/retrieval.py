@@ -35,6 +35,37 @@ class Results(list):
     best_score: float | None = None
 
 
+# The Moodle plugin names each course's overview "<course name>: course overview and schedule".
+OVERVIEW_KEY, OVERVIEW_SUFFIX = "overview", ": course overview and schedule"
+# Passages always taken from the page a Moodle student is viewing, so "this module" is answerable.
+PAGE_PASSAGES = 2
+
+
+@dataclass
+class Place:
+    """Where a Moodle student is: the course's name and the activity page they're viewing."""
+    course: str = ""
+    page: str = ""
+    page_document_id: int | None = None
+
+
+async def moodle_place(tenant, course, activity=None) -> Place:
+    """The course and page names for a student on a Moodle course's pages (blank when unknown,
+    e.g. the course hasn't been sent yet or the activity isn't shown to every student)."""
+    place = Place()
+    if course is None:
+        return place
+    docs = Document.objects.filter(tenant=tenant, moodle_course_id=course, status=Document.Status.READY)
+    overview = await docs.filter(moodle_key=OVERVIEW_KEY).only("name").afirst()
+    if overview:
+        place.course = overview.name.removesuffix(OVERVIEW_SUFFIX)
+    if activity:
+        page = await docs.filter(moodle_key=f"cm:{activity}").only("id", "name").afirst()
+        if page:
+            place.page, place.page_document_id = page.name, page.id
+    return place
+
+
 def _searchable(tenant, config, course=None):
     """Chunks of ready documents embedded with the current embedding configuration: the
     workspace's own documents, or with ``course`` (a Moodle course ID) that course's content."""
@@ -82,7 +113,8 @@ async def embed_queries(queries: list[str]) -> list[list[float]]:
 
 
 async def search(tenant, queries: list[str], top_k: int | None = None,
-                 min_score: float | None = None, query_vectors=None, course=None) -> list[Passage]:
+                 min_score: float | None = None, query_vectors=None, course=None,
+                 page_document=None) -> list[Passage]:
     """Return the passages that answer ``queries``, best first (hybrid search).
 
     Candidates come from two routes:
@@ -96,7 +128,9 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
     similarity. Raises llm.LLMError if the query cannot be embedded.
 
     ``course`` (a Moodle course ID) searches that course's content instead of the
-    workspace's documents.
+    workspace's documents. ``page_document``: the course item the student is viewing; its
+    PAGE_PASSAGES best passages come first whatever their score, so questions like "what is
+    this module about?" are answered from it.
     """
     cfg = await conf.aget(tenant)
     top_k = cfg.top_k if top_k is None else top_k
@@ -136,23 +170,29 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
                                          course=course):
         if cid in score_of:
             best.setdefault(cid, score_of[cid])
-    if not best:
+    page_ids = []
+    if page_document is not None:
+        in_page = [cid async for cid in _searchable(tenant, config, course).filter(document_id=page_document)
+                   .values_list("id", flat=True)]
+        page_ids = sorted((c for c in in_page if c in score_of), key=lambda c: -score_of[c])[:PAGE_PASSAGES]
+    if not best and not page_ids:
         return results
 
     chunks = {
         c.id: c
-        async for c in Chunk.objects.filter(id__in=best).select_related("document").only(
+        async for c in Chunk.objects.filter(id__in=[*best, *page_ids]).select_related("document").only(
             "id", "index", "text", "document__id", "document__name"
         )
     }
-    passages = [
-        Passage(
-            chunk_id=cid, document_id=chunks[cid].document.id, document=chunks[cid].document.name,
-            index=chunks[cid].index, text=chunks[cid].text, score=score,
-        )
-        for cid, score in sorted(best.items(), key=lambda kv: -kv[1])
-        if cid in chunks
-    ]
+
+    def passage(cid, score):
+        c = chunks[cid]
+        return Passage(chunk_id=cid, document_id=c.document.id, document=c.document.name, index=c.index,
+                       text=c.text, score=score)
+
+    passages = [passage(cid, score) for cid, score in sorted(best.items(), key=lambda kv: -kv[1])
+                if cid in chunks and cid not in page_ids]
+    results.extend(passage(cid, score_of[cid]) for cid in page_ids if cid in chunks)
     results.extend(finalise(queries, passages, strong_threshold(config, cfg, min_score), top_k, cfg.min_term_overlap))
     return results
 

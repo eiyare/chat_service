@@ -133,13 +133,26 @@ def grounding_prompt(cfg, no_answer: str | None = None) -> str:
     return conf.fill(prompt, cfg).replace("{no_answer}", no_answer or conf.fill(cfg.no_answer_message, cfg))
 
 
-def grounded_question(question: str, passages, lang: str = "en") -> str:
-    """The user's question wrapped with the retrieved passages it must be answered from."""
+def grounded_question(question: str, passages, lang: str = "en", place=None, today=None) -> str:
+    """The user's question wrapped with the retrieved passages it must be answered from, and,
+    for a Moodle student (``place``), the course and page they are on and today's date."""
     blocks = [f"[{n}] (source: {p.document})\n{p.text}" for n, p in enumerate(passages, 1)]
-    instruction = "Answer using only the context passages above."
+    situation = []
+    if place is not None and (place.course or place.page):
+        if place.course:
+            situation.append(f'The student is in the course "{place.course}".')
+        if place.page:
+            situation.append(f'They are viewing "{place.page}": "this module", "this page" or "this activity" '
+                             "means that one.")
+        if today is not None:
+            situation.append(f"Today is {date_format(today, 'l j F Y')}.")
+    instruction = ("Use the conversation so far to work out what the question refers to, "
+                   "but take facts only from the context passages above.")
     if lang == "pcm":
         instruction += " The question is in Nigerian Pidgin English: answer in Nigerian Pidgin English."
-    return "Context passages:\n\n" + "\n\n".join(blocks) + f"\n\nQuestion: {question}\n\n{instruction}"
+    context = ("\n".join(situation) + "\n\n") if situation else ""
+    return ("Context passages:\n\n" + "\n\n".join(blocks)
+            + f"\n\n{context}Question: {question}\n\n{instruction}")
 
 
 @require_POST
@@ -148,13 +161,15 @@ async def api_send(request):
     return await respond(request, request.tenant, user=request.user)
 
 
-async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None, course=None):
+async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None, course=None,
+                  activity=None):
     """Answer a question strictly from the workspace's documents, streamed as NDJSON.
 
     Shared by the workspace chat and the website widget (source/visitor_id scope
     which conversations the caller may continue; the widget always uses the
     default model). ``course``: a student on a Moodle course's pages, answered
-    from that course's content only (no workspace documents or FAQs).
+    from that course's content only (no workspace documents or FAQs); ``activity``: the
+    course module they are viewing, whose passages are always included.
 
     1. Retrieve the most relevant document chunks for the question.
     2. If none are relevant enough, reply with a fixed "not in the documents"
@@ -209,13 +224,17 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     no_answer = persona.no_answer(cfg, lang)
     search = persona.search_text(text, name)
     queries = [search]
-    previous_text = None
+    previous_text = previous_answer = None
     if conversation is not None and not small_talk:
         previous = await conversation.messages.filter(role=Message.Role.USER).alast()
         if previous:
-            # Follow-ups ("and the second one?") need the earlier question for context.
+            # Follow-ups ("and the second one?") need the earlier question for context,
+            # and replies to an offer ("yes") the assistant's answer too.
             previous_text = persona.search_text(previous.content, name)
             queries.append(f"{previous_text}\n{search}")
+            answer = await conversation.messages.filter(role=Message.Role.ASSISTANT, id__gt=previous.id).alast()
+            previous_answer = _CITATION.sub("", answer.content) if answer else None
+    place = await retrieval.moodle_place(tenant, course, activity)
     kb_status = await retrieval.kb_status(tenant, course)
     faqs = [] if course is not None else await faq.enabled_for(tenant)
     passages = retrieval.Results()
@@ -229,7 +248,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     if (not small_talk and faq_hit is None and kb_status == retrieval.KB.READY and cfg.rewrite_queries
             and not (await usage_lib.current(tenant)).exhausted):
         # Turn the question into a plain-English search query (Pidgin, paraphrases, follow-ups).
-        rewritten, *rewrite_tokens = await rewrite_lib.rewrite(model, search, previous_text, cfg)
+        rewritten, *rewrite_tokens = await rewrite_lib.rewrite(model, search, previous_text, cfg,
+                                                               answer=previous_answer, page=place.page)
         if rewritten:
             search_query = rewritten
             queries = [rewritten] + queries
@@ -245,7 +265,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             if faq_hit is None:
                 # 3. Document search, plus close FAQs as extra context for the model.
                 if kb_status == retrieval.KB.READY:
-                    passages = await retrieval.search(tenant, queries, query_vectors=query_vectors, course=course)
+                    passages = await retrieval.search(tenant, queries, query_vectors=query_vectors, course=course,
+                                                      page_document=place.page_document_id)
                 faq_context = faq.context_passages(query_vectors[original], indexed, llm_config.faq_context_cutoff)
                 if faq_context:
                     best = passages.best_score
@@ -334,7 +355,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         messages = (
             [{"role": "system", "content": grounding_prompt(cfg, no_answer)}]
             + history
-            + [{"role": "user", "content": grounded_question(text, passages, lang)}]
+            + [{"role": "user", "content": grounded_question(text, passages, lang, place, timezone.localdate())}]
         )
         content, thinking = [], []
         yield _ndjson(meta)

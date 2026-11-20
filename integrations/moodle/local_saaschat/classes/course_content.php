@@ -81,18 +81,24 @@ class course_content {
             }
             $text = $this->activity_text($cm);
             if ($text !== null) {
-                $items['cm:' . $cm->id] = $this->text_item($cm->get_formatted_name() . ' (' . $cm->modfullname . ')', $text);
+                $items['cm:' . $cm->id] = $this->text_item(self::plain($cm->get_formatted_name()) . ' (' . $cm->modfullname . ')', $text);
             }
             foreach ($this->activity_files($cm) as $file) {
                 $items['file:' . $cm->id . ':' . $file->get_id()] = [
-                    'name' => $file->get_filename() . ' (' . $cm->get_formatted_name() . ')',
-                    'version' => sha1($file->get_contenthash() . '|' . $file->get_filename() . '|' . $cm->name),
+                    'name' => $file->get_filename() . ' (' . self::plain($cm->get_formatted_name()) . ')',
+                    'version' => sha1($file->get_contenthash() . '|' . $file->get_filename() . '|'
+                        . self::plain($cm->get_formatted_name())),
                     'file' => $file,
                     'filename' => $file->get_filename(),
                 ];
             }
         }
         return $items;
+    }
+
+    /** Moodle's display names are HTML-escaped ("Q&amp;A"); saaschat gets plain text ("Q&A"). */
+    private static function plain(string $html): string {
+        return html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     private function text_item(string $name, string $text): array {
@@ -112,7 +118,7 @@ class course_content {
     /** [document name, Markdown text]: the course, its sections, activities and their dates. */
     private function overview(): array {
         $course = $this->course;
-        $name = format_string($course->fullname, true, ['context' => \context_course::instance($course->id)]);
+        $name = self::plain(format_string($course->fullname, true, ['context' => \context_course::instance($course->id)]));
         $lines = ["# {$name}: course overview and schedule", ''];
         $facts = ["Course: {$name} ({$course->shortname})."];
         if (!empty($course->startdate)) {
@@ -153,11 +159,11 @@ class course_content {
                     continue;
                 }
                 $dates = $this->dates($cm);
-                $body[] = '- ' . $cm->get_formatted_name() . ' (' . $cm->modfullname . ')' . ($dates ? ': ' . $dates : '');
+                $body[] = '- ' . self::plain($cm->get_formatted_name()) . ' (' . $cm->modfullname . ')' . ($dates ? ': ' . $dates : '');
             }
             if ($body) {
                 $lines[] = '';
-                $lines[] = '## ' . get_section_name($course, $section);
+                $lines[] = '## ' . self::plain(get_section_name($course, $section));
                 $lines = array_merge($lines, $body);
             }
         }
@@ -211,7 +217,7 @@ class course_content {
                 $chapters = $DB->get_records('book_chapters', ['bookid' => $cm->instance, 'hidden' => 0], 'pagenum',
                     'id, title, content, contentformat');
                 foreach ($chapters as $chapter) {
-                    $parts[] = '## ' . format_string($chapter->title) . "\n" . $this->to_text($chapter->content, $chapter->contentformat);
+                    $parts[] = '## ' . self::plain(format_string($chapter->title)) . "\n" . $this->to_text($chapter->content, $chapter->contentformat);
                 }
                 break;
             case 'assign':
@@ -246,7 +252,7 @@ class course_content {
         if ($cm->url) {
             $facts[] = 'Link: ' . $cm->url->out(false);
         }
-        return '# ' . $cm->get_formatted_name() . "\n\n" . implode(' ', $facts) . "\n\n" . implode("\n\n", $parts);
+        return '# ' . self::plain($cm->get_formatted_name()) . "\n\n" . implode(' ', $facts) . "\n\n" . implode("\n\n", $parts);
     }
 
     private function intro(\cm_info $cm): string {
@@ -285,7 +291,7 @@ class course_content {
                 continue;
             }
             $names = $this->user_names(array_unique(array_column($posts, 'userid')));
-            $text = ['## Discussion: ' . format_string($discussion->name)];
+            $text = ['## Discussion: ' . self::plain(format_string($discussion->name))];
             foreach ($posts as $post) {
                 $who = $names[$post->userid] ?? get_string('unknownuser');
                 $text[] = "{$who}, " . $this->date($post->created) . ":\n" . $this->to_text($post->message, $post->messageformat);
