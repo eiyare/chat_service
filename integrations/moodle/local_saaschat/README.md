@@ -1,6 +1,6 @@
 # saaschat for Moodle (`local_saaschat`)
 
-Adds the saaschat assistant to every Moodle page, greets signed-in users by name,
+Adds the saaschat assistant to Moodle pages (all of them, or the areas you choose), greets signed-in users by name,
 keeps their conversations across devices, answers students from the course they are in,
 and can keep a copy of the workspace's document passages in the Moodle database.
 
@@ -22,6 +22,18 @@ Moodle 4.0 or later.
    `data-key` from the workspace's Admin → Embed page) and the **shared code**.
 3. Remove any saaschat `<script>` previously pasted into Appearance → Additional HTML,
    or the button will appear twice.
+
+## Where the assistant appears
+
+By default on every page. Under **Show the assistant on**, untick the areas where it shouldn't
+appear: Site home, Dashboard and My courses, course categories, course main pages, activities and
+resources, quiz attempts, user profiles, reports and grades, site administration, the login page,
+and all other pages. Quiz attempts are the pages where a student answers a quiz (and Safe Exam
+Browser pages); a quiz's info page counts as an activity page.
+
+For finer control, list Moodle page types under **Hide on these page types**, one per line, e.g.
+`mod-assign-view`, or `mod-quiz-*` for every quiz page. A page's type is the `page-…` id on its
+`<body>` tag, without `page-`.
 
 ## Course-aware answers
 

@@ -6,6 +6,7 @@ defined('MOODLE_INTERNAL') || die();
  *
  * Token: base64url(JSON {sub, name, exp[, course]}) . "." . hex HMAC-SHA256(shared code, payload).
  * Guests and visitors who aren't logged in get no token and are greeted as "Guest".
+ * Nothing is added on pages whose area or page type is turned off in the plugin settings.
  * On the pages of a course whose content is sent to saaschat, and which the student can
  * access, the token names the course: answers then come from that course only.
  */
@@ -17,6 +18,9 @@ function local_saaschat_widget_html(): string {
     $server = rtrim((string) get_config('local_saaschat', 'serverurl'), '/');
     $key = (string) get_config('local_saaschat', 'widgetkey');
     if ($server === '' || $key === '') {
+        return '';
+    }
+    if (!\local_saaschat\page_areas::shown((string) $PAGE->pagelayout, (string) $PAGE->pagetype)) {
         return '';
     }
     $attributes = ['src' => $server . '/static/widget/embed.js', 'data-key' => $key, 'async' => 'async'];
