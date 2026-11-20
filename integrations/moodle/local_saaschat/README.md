@@ -41,8 +41,8 @@ In the plugin settings, choose **Course content**: *All visible courses* or *Cou
 (with their IDs). Every hour the scheduled task "Send course content to saaschat" sends each
 chosen course's:
 
-- overview and schedule: course dates, section names and summaries, labels, and each activity
-  with its open/due/close dates;
+- overview and schedule: course dates, how many activities and resources of each type there are,
+  section names and summaries, labels, and each activity with its open/due/close dates;
 - activity descriptions, Page and Book text, assignment instructions and URL addresses;
 - files in File and Folder activities (the types the workspace accepts, within its size limit);
 - forum posts, newest discussions first (no Q&A forums, private replies, separate-group

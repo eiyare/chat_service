@@ -122,6 +122,10 @@ class course_content {
             $facts[] = 'Ends: ' . $this->date($course->enddate) . '.';
         }
         $lines[] = implode(' ', $facts);
+        $count = $this->activity_count();
+        if ($count !== '') {
+            $lines[] = $count;
+        }
         $summary = trim(content_to_text((string) $course->summary, (int) $course->summaryformat));
         if ($summary !== '') {
             $lines[] = '';
@@ -158,6 +162,31 @@ class course_content {
             }
         }
         return ["{$name}: course overview and schedule", implode("\n", $lines)];
+    }
+
+    /**
+     * "This course has 12 activities and resources: 4 Assignments, 3 Quizzes, …", so questions
+     * about how many there are can be answered from one passage (labels aren't counted).
+     */
+    private function activity_count(): string {
+        $counts = [];
+        foreach ($this->modinfo->get_cms() as $cm) {
+            if ($cm->modname !== 'label' && $this->shown($cm)) {
+                $counts[$cm->modname] = ($counts[$cm->modname] ?? 0) + 1;
+            }
+        }
+        if (!$counts) {
+            return '';
+        }
+        arsort($counts);
+        $parts = [];
+        foreach ($counts as $modname => $n) {
+            $type = get_string($n === 1 ? 'modulename' : 'modulenameplural', 'mod_' . $modname);
+            $parts[] = "{$n} {$type}";
+        }
+        $total = array_sum($counts);
+        return "This course has {$total} " . ($total === 1 ? 'activity or resource' : 'activities and resources')
+            . ': ' . implode(', ', $parts) . '.';
     }
 
     /** Markdown for one activity, or null when it has nothing beyond what the overview says. */
