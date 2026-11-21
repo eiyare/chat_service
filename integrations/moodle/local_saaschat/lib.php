@@ -4,7 +4,9 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * The widget's <script> tag, with the signed-in student signed by the shared code.
  *
- * Token: base64url(JSON {sub, name, exp[, course[, cm]]}) . "." . hex HMAC-SHA256(shared code, payload).
+ * Token: base64url(JSON {sub, name, exp, site[, course[, cm]]}) . "." . hex HMAC-SHA256(shared code, payload).
+ * "site" is this Moodle's address, where saaschat looks up the student's own grades,
+ * completion and deadlines (student.php) when that is turned on.
  * Guests and visitors who aren't logged in get no token and are greeted as "Guest".
  * Nothing is added on pages whose area or page type is turned off in the plugin settings.
  * On the pages of a course whose content is sent to saaschat, and which the student can
@@ -12,7 +14,7 @@ defined('MOODLE_INTERNAL') || die();
  * activity's pages it also names the activity, so "this module" means that one.
  */
 function local_saaschat_widget_html(): string {
-    global $USER, $PAGE;
+    global $USER, $PAGE, $CFG;
     if (during_initial_install() || (defined('AJAX_SCRIPT') && AJAX_SCRIPT) || CLI_SCRIPT) {
         return '';
     }
@@ -31,6 +33,7 @@ function local_saaschat_widget_html(): string {
             'sub' => (int) $USER->id,
             'name' => fullname($USER),
             'exp' => time() + 12 * HOURSECS,
+            'site' => $CFG->wwwroot,
         ];
         $course = $PAGE->course ?? null;
         if ($course && \local_saaschat\course_content::is_synced($course) && can_access_course($course, null, '', true)) {

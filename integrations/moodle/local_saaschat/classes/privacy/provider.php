@@ -11,7 +11,8 @@ use core_privacy\local\request\contextlist;
  * Stores no personal data in Moodle (the passage copy holds document text only). Signed-in
  * students' ID and name are sent to saaschat, which keeps their chat conversations. With
  * course content turned on, forum posts every student in a course can read (with their
- * authors' names) are sent too. Requests to export or delete data held in saaschat are
+ * authors' names) are sent too. With students' own data turned on, the asking student's
+ * grades, completion and deadlines in the course are sent while they ask. Requests to export or delete data held in saaschat are
  * handled by the saaschat workspace owner.
  */
 class provider implements \core_privacy\local\metadata\provider, \core_privacy\local\request\plugin\provider {
@@ -27,6 +28,11 @@ class provider implements \core_privacy\local\metadata\provider, \core_privacy\l
             'message' => 'privacy:metadata:saaschat_forums:message',
             'created' => 'privacy:metadata:saaschat_forums:created',
         ], 'privacy:metadata:saaschat_forums');
+        $collection->add_external_location_link('saaschat_student', [
+            'grades' => 'privacy:metadata:saaschat_student:grades',
+            'completion' => 'privacy:metadata:saaschat_student:completion',
+            'deadlines' => 'privacy:metadata:saaschat_student:deadlines',
+        ], 'privacy:metadata:saaschat_student');
         return $collection;
     }
 

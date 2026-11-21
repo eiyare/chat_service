@@ -18,6 +18,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 import llm
 from rag import faq, retrieval
+from widget import student_tools as student_tools_lib
 from siteconfig import conf
 from tenants.decorators import tenant_required
 
@@ -26,6 +27,9 @@ from . import rewrite as rewrite_lib
 from . import usage as usage_lib
 from .models import Conversation, Message
 from .trace import Trace, excerpt
+
+# Rounds in which the model may ask for tools before it must answer.
+MAX_TOOL_ROUNDS = 4
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +178,7 @@ def grounding_prompt(cfg, no_answer: str | None = None) -> str:
     return conf.fill(prompt, cfg).replace("{no_answer}", no_answer or conf.fill(cfg.no_answer_message, cfg))
 
 
-def grounded_question(question: str, passages, lang: str = "en", place=None, today=None) -> str:
+def grounded_question(question: str, passages, lang: str = "en", place=None, today=None, tools=False) -> str:
     """The user's question wrapped with the retrieved passages it must be answered from, and,
     for a Moodle student (``place``), the course and page they are on and today's date."""
     blocks = [f"[{n}] (source: {p.document})\n{p.text}" for n, p in enumerate(passages, 1)]
@@ -189,6 +193,12 @@ def grounded_question(question: str, passages, lang: str = "en", place=None, tod
             situation.append(f"Today is {date_format(today, 'l j F Y')}.")
     instruction = ("Use the conversation so far to work out what the question refers to, "
                    "but take facts only from the context passages above.")
+    if tools:
+        instruction = ("Use the conversation so far to work out what the question refers to. Take facts only "
+                       "from the context passages and from what the tools return; use the tools for anything "
+                       "about the student's own grades, completion or deadlines, or to search the course.")
+        if not blocks:
+            blocks = ["(No course passages matched the question; use the tools.)"]
     if lang == "pcm":
         instruction += " The question is in Nigerian Pidgin English: answer in Nigerian Pidgin English."
     context = ("\n".join(situation) + "\n\n") if situation else ""
@@ -203,14 +213,16 @@ async def api_send(request):
 
 
 async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None, course=None,
-                  activity=None):
+                  activity=None, student_tools=None):
     """Answer a question strictly from the workspace's documents, streamed as NDJSON.
 
     Shared by the workspace chat and the website widget (source/visitor_id scope
     which conversations the caller may continue; the widget always uses the
     default model). ``course``: a student on a Moodle course's pages, answered
     from that course's content only (no workspace documents or FAQs); ``activity``: the
-    course module they are viewing, whose passages are always included.
+    course module they are viewing, whose passages are always included; ``student_tools``:
+    their Moodle lookups (widget.student_tools.StudentTools), which make the model an agent
+    that can look up their own grades, completion and deadlines and search the course.
 
     1. Retrieve the most relevant document chunks for the question.
     2. If none are relevant enough, reply with a fixed "not in the documents"
@@ -477,59 +489,148 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
 
     token_policy = tenant.token_policy
 
+    use_tools = student_tools is not None and course is not None
+
+    async def run_tool(call) -> str:
+        """Run one tool call for the model; returns what the model is given back. The brain map
+        records what was looked up and how it went, never the student's data."""
+        name = call["name"]
+        try:
+            args = json.loads(call["arguments"] or "{}")
+            args = args if isinstance(args, dict) else {}
+        except ValueError:
+            args = {}
+        t = trace.clock()
+        if name == "search_course":
+            query = str(args.get("query") or "").strip()[:300]
+            if not query:
+                trace.add("tool", "Tool: search_course", "fail", "No search words given", trace.since(t))
+                return json.dumps({"error": "Give the words to search for."})
+            try:
+                found = await retrieval.search(tenant, [query], course=course)
+            except llm.LLMError as exc:
+                trace.add("tool", "Tool: search_course", "fail", str(exc), trace.since(t), query=query)
+                return json.dumps({"error": "The course search failed."})
+            known = {p.chunk_id for p in passages}
+            new = [p for p in found if p.chunk_id not in known]
+            sources.extend(p.as_source(n) for n, p in enumerate(new, len(passages) + 1))
+            passages.extend(new)
+            number = {p.chunk_id: n for n, p in enumerate(passages, 1)}
+            trace.add("tool", "Tool: search_course", "pass" if found else "miss",
+                      f'"{query}": {len(found)} passage{"s" if len(found) != 1 else ""}', trace.since(t), query=query,
+                      passages=[f"[{number[p.chunk_id]}] {p.document} (similarity {p.score:.2f})" for p in found])
+            return "\n\n".join(f"[{number[p.chunk_id]}] (source: {p.document})\n{p.text}" for p in found) \
+                or "No passages found."
+        if name in student_tools_lib.MOODLE_TOOLS:
+            data, ms = await student_tools.lookup(name)
+            inner = data.get("data") if isinstance(data, dict) else None
+            failed = not isinstance(data, dict) or data.get("error") or (isinstance(inner, dict) and inner.get("error"))
+            trace.add("tool", f"Tool: {name}", "fail" if failed else "pass", student_tools_lib.outline(name, data), ms,
+                      note="The student's data went to the model only; it isn't stored here.")
+            return student_tools_lib.result_text(data)
+        trace.add("tool", f"Tool: {name}", "fail", "The model asked for a tool that doesn't exist", 0)
+        return json.dumps({"error": f"There is no tool called {name}."})
+
     async def model_reply():
         system = grounding_prompt(cfg, no_answer)
-        question = grounded_question(text, passages, lang, place, timezone.localdate())
+        if use_tools:
+            system += "\n\n" + conf.fill(cfg.student_tools_prompt, cfg)
+        question = grounded_question(text, passages, lang, place, timezone.localdate(), tools=use_tools)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": question}]
+        tools = student_tools_lib.DEFINITIONS if use_tools else None
         trace.add("prompt", "Prompt", "pass",
                   f"{len(passages)} passage{'s' if len(passages) != 1 else ''} and {len(history)} earlier "
-                  f"message{'s' if len(history) != 1 else ''} sent to {llm_config.label(model)}",
+                  f"message{'s' if len(history) != 1 else ''} sent to {llm_config.label(model)}"
+                  + (", with student data tools" if tools else ""),
                   grounding_mode=cfg.grounding_mode, temperature=cfg.temperature,
                   max_output_tokens=token_policy.max_output_tokens, retries_allowed=cfg.provider_retries,
+                  tools=[d["function"]["name"] for d in tools] if tools else None,
                   system_prompt=system, question_with_passages=question)
         model_started = trace.clock()
         content, thinking = [], []
+        tokens = [None, None]  # input, output: summed over the rounds
+        done = {}
         yield _ndjson(meta)
         yield _ndjson({"type": "sources", "sources": sources})
         try:
-            async for event in llm.stream_chat(model, messages, temperature=cfg.temperature,
-                                               max_tokens=token_policy.max_output_tokens,
-                                               retries=cfg.provider_retries):
-                if event["type"] == "content":
-                    content.append(event["text"])
-                elif event["type"] == "thinking":
-                    thinking.append(event["text"])
-                elif event["type"] == "done":
-                    trace.add("model", "Model answer", "pass",
-                              f"{llm_config.label(model)} answered"
-                              + (f" after {event['attempts']} attempts" if event.get("attempts", 1) > 1 else ""),
-                              trace.since(model_started),
-                              tokens=f"{event.get('prompt_tokens')} in / {event.get('completion_tokens')} out",
-                              generation_time=f"{event['duration_ms']} ms" if event.get("duration_ms") is not None
-                              else None, attempts=event.get("attempts") if event.get("attempts", 1) > 1 else None,
-                              reasoning=excerpt("".join(thinking), 4000) if thinking else None)
-                    full = "".join(content)
-                    cleaned = strip_trailing_no_answer(full, (no_answer, conf.fill(cfg.no_answer_message, cfg)))
-                    cited = sorted({int(n) for n in _CITED.findall(cleaned) if 0 < int(n) <= len(passages)})
-                    trace.add("checks", "Answer checks", "pass",
-                              "Cites " + ", ".join(f"[{n}] {passages[n - 1].document}" for n in cited) if cited
-                              else "No passages cited",
-                              trailing_no_answer_removed="yes" if cleaned != full else None,
-                              uncited_passages=[f"[{n}] {p.document}" for n, p in enumerate(passages, 1)
-                                                if n not in cited] or None)
-                    if cleaned != full:
-                        content[:] = [cleaned]
-                        yield _ndjson({"type": "replace", "text": cleaned})  # fix what the user sees
-                    msg = await save_reply(
-                        "".join(content), "".join(thinking), model, Message.Outcome.ANSWERED,
-                        event.get("prompt_tokens"), event.get("completion_tokens"),
-                    )
-                    event["message_id"] = msg.pk if msg else None
-                    event["grounded"] = True
-                    event["stats"] = msg.stats() if msg else None
-                    if settings.DEBUG:
-                        yield debug_event(msg.outcome if msg else Message.Outcome.ANSWERED, event.get("attempts"))
-                yield _ndjson(event)
+            for round_number in range(1, MAX_TOOL_ROUNDS + 2):
+                round_started, round_from = trace.clock(), len(content)
+                calls, done = None, {}
+                try:
+                    async for event in llm.stream_chat(model, messages, temperature=cfg.temperature,
+                                                       max_tokens=token_policy.max_output_tokens,
+                                                       retries=cfg.provider_retries, tools=tools):
+                        if event["type"] == "content":
+                            content.append(event["text"])
+                            yield _ndjson(event)
+                        elif event["type"] == "thinking":
+                            thinking.append(event["text"])
+                            yield _ndjson(event)
+                        elif event["type"] == "tool_calls":
+                            calls = event["calls"]
+                        elif event["type"] == "done":
+                            done = event
+                except llm.LLMError as exc:
+                    if tools and round_number == 1 and exc.kind == "bad_request" and not exc.partial:
+                        # The model (or its provider) doesn't take tools: answer as before.
+                        trace.add("model", "Model: tools", "fail",
+                                  "The model rejected the tools, so it answers without student data",
+                                  trace.since(round_started), provider_error=exc.detail)
+                        tools = None
+                        messages[0]["content"] = grounding_prompt(cfg, no_answer)
+                        continue
+                    raise
+                for i, key in enumerate(("prompt_tokens", "completion_tokens")):
+                    if done.get(key) is not None:
+                        tokens[i] = (tokens[i] or 0) + done[key]
+                if not (calls and tools):
+                    break
+                if round_number > MAX_TOOL_ROUNDS:  # still asking for tools: stop with what it has
+                    trace.add("model", "Model: tools", "fail", f"Still asking for tools after {MAX_TOOL_ROUNDS} rounds")
+                    break
+                said = "".join(content[round_from:])
+                trace.add("model", f"Model round {round_number}", "pass",
+                          "Asked for " + ", ".join(c["name"] for c in calls), trace.since(round_started),
+                          tokens=f"{done.get('prompt_tokens')} in / {done.get('completion_tokens')} out",
+                          said_first=said or None)
+                messages.append({"role": "assistant", "content": said or None, "tool_calls": [
+                    {"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+                    for c in calls]})
+                for c in calls:
+                    messages.append({"role": "tool", "tool_call_id": c["id"], "content": await run_tool(c)})
+                yield _ndjson({"type": "sources", "sources": sources})
+                if said:
+                    content.append("\n\n")
+                    yield _ndjson({"type": "content", "text": "\n\n"})
+            done = {**done, "type": "done", "prompt_tokens": tokens[0], "completion_tokens": tokens[1]}
+            trace.add("model", "Model answer", "pass",
+                      f"{llm_config.label(model)} answered"
+                      + (f" after {done['attempts']} attempts" if done.get("attempts", 1) > 1 else ""),
+                      trace.since(model_started),
+                      tokens=f"{tokens[0]} in / {tokens[1]} out",
+                      generation_time=f"{done['duration_ms']} ms" if done.get("duration_ms") is not None else None,
+                      attempts=done.get("attempts") if done.get("attempts", 1) > 1 else None,
+                      reasoning=excerpt("".join(thinking), 4000) if thinking else None)
+            full = "".join(content)
+            cleaned = strip_trailing_no_answer(full, (no_answer, conf.fill(cfg.no_answer_message, cfg)))
+            cited = sorted({int(n) for n in _CITED.findall(cleaned) if 0 < int(n) <= len(passages)})
+            trace.add("checks", "Answer checks", "pass",
+                      "Cites " + ", ".join(f"[{n}] {passages[n - 1].document}" for n in cited) if cited
+                      else "No passages cited",
+                      trailing_no_answer_removed="yes" if cleaned != full else None,
+                      uncited_passages=[f"[{n}] {p.document}" for n, p in enumerate(passages, 1)
+                                        if n not in cited] or None)
+            if cleaned != full:
+                content[:] = [cleaned]
+                yield _ndjson({"type": "replace", "text": cleaned})  # fix what the user sees
+            msg = await save_reply("".join(content), "".join(thinking), model, Message.Outcome.ANSWERED,
+                                   tokens[0], tokens[1])
+            done["message_id"] = msg.pk if msg else None
+            done["grounded"] = True
+            done["stats"] = msg.stats() if msg else None
+            if settings.DEBUG:
+                yield debug_event(msg.outcome if msg else Message.Outcome.ANSWERED, done.get("attempts"))
+            yield _ndjson(done)
         except asyncio.CancelledError:
             # Client disconnected (e.g. pressed Stop): keep what was generated so far.
             trace.add("model", "Model answer", "fail", "Stopped by the user before the answer was finished",
@@ -550,7 +651,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         retrieval.KB.NO_EMBEDDING_MODEL: conf.fill(cfg.no_embedding_message, cfg),
         retrieval.KB.NEEDS_REINDEX: conf.fill(cfg.needs_reindex_message, cfg),
     }
-    usage = await usage_lib.current(tenant) if passages and not faq_hit else None
+    usage = await usage_lib.current(tenant) if (passages or use_tools) and not faq_hit else None
 
     def route(summary, status="pass"):
         trace.add("route", "Route", status, summary)
@@ -561,12 +662,13 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     elif faq_hit:
         route("FAQ answer, no model call", "hit")
         events = fixed_reply(faq_hit.faq.answer, Message.Outcome.FAQ)
-    elif passages and usage.exhausted:
-        route("Passages found, but the workspace's token allowance is used up", "fail")
+    elif (passages or use_tools) and usage.exhausted:
+        route("The workspace's token allowance is used up", "fail")
         reset = date_format(usage.resets_at, "DATETIME_FORMAT" if token_policy.period == "day" else "DATE_FORMAT")
         events = fixed_reply(conf.fill(cfg.token_limit_message, cfg).replace("{reset}", reset), Message.Outcome.LIMITED)
-    elif passages:
-        route("Passages found: ask the model to answer from them")
+    elif passages or use_tools:
+        route("Ask the model to answer, with the student data tools" + (" and the passages found" if passages else "")
+              if use_tools else "Passages found: ask the model to answer from them")
         events = model_reply()
     elif kb_status in unavailable and not faqs:
         route(f"{_KB_LABELS[kb_status]}: fixed reply, no model call", "fail")

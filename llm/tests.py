@@ -231,6 +231,23 @@ class StreamChatTests(TestCase):
             return gen()
         return acompletion, calls
 
+    async def test_tool_calls_are_assembled_from_streamed_pieces(self):
+        def call(index, id=None, name=None, arguments=None):
+            return SimpleNamespace(index=index, id=id, function=SimpleNamespace(name=name, arguments=arguments))
+
+        pieces = [call(0, "c1", "get_my_grades", ""), call(0, arguments="{}"),
+                  call(1, "c2", "search_course", '{"que'), call(1, arguments='ry": "essay"}')]
+        chunks = [SimpleNamespace(usage=None, choices=[SimpleNamespace(delta=SimpleNamespace(
+            content=None, reasoning_content=None, tool_calls=[p]))]) for p in pieces]
+        acompletion, calls = fake_acompletion(chunks)
+        with mock.patch("litellm.acompletion", acompletion):
+            events = [e async for e in llm.stream_chat("openai/chat-a", [], tools=[{"type": "function"}])]
+        self.assertEqual(calls[0]["tools"], [{"type": "function"}])
+        self.assertEqual(events[0], {"type": "tool_calls", "calls": [
+            {"id": "c1", "name": "get_my_grades", "arguments": "{}"},
+            {"id": "c2", "name": "search_course", "arguments": '{"query": "essay"}'}]})
+        self.assertEqual(events[-1]["type"], "done")
+
     @mock.patch("llm.client.RETRY_DELAY", 0)
     async def test_temporary_failures_are_retried(self):
         busy = litellm.exceptions.InternalServerError("Overloaded", "anthropic", "openai/chat-a")

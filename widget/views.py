@@ -20,6 +20,7 @@ from rag.models import Document, IndexingRun
 from tenants.decorators import tenant_required
 
 from . import moodle, ratelimit
+from .student_tools import StudentTools
 from .forms import WidgetForm
 from .models import Widget
 
@@ -48,8 +49,9 @@ def _error(message, status):
 
 
 async def _visitor_request(request, key):
-    """Common checks for widget API calls. Returns (widget, body, visitor_id, course, activity)
-    or an error response. ``course`` is the Moodle course a verified student is on (when the
+    """Common checks for widget API calls. Returns (widget, body, visitor_id, course, activity,
+    student) or an error response. ``student`` is the verified Moodle student with their
+    signed token (for student data tools), else None. ``course`` is the Moodle course a verified student is on (when the
     workspace takes course content), else None; ``activity`` the course module they're viewing."""
     widget = await _active_widget(key)
     if not _same_origin(request):
@@ -63,7 +65,7 @@ async def _visitor_request(request, key):
     visitor_id = str(body.get("visitor_id") or "") if isinstance(body, dict) else ""
     if not _VISITOR.match(visitor_id) or visitor_id.startswith("moodle-"):  # reserved for verified students
         return _error("Invalid visitor", 400)
-    course = activity = None
+    course = activity = student = None
     if widget.moodle_enabled and body.get("user_token"):
         user = moodle.verify_user(widget.moodle_shared_code, body["user_token"])
         if user:  # signed by the Moodle plugin: same conversations on every device
@@ -71,8 +73,9 @@ async def _visitor_request(request, key):
                 user["course"] = None
             course = user["course"]
             activity = user["activity"] if course is not None else None
+            student = {**user, "token": body["user_token"]}
             visitor_id = moodle.visitor_id(user)
-    return widget, body, visitor_id, course, activity
+    return widget, body, visitor_id, course, activity, student
 
 
 @login_not_required  # public: shown to visitors of the customer's website
@@ -119,14 +122,15 @@ async def send(request, key):
     checked = await _visitor_request(request, key)
     if not isinstance(checked, tuple):
         return checked
-    widget, _, visitor_id, course, activity = checked
+    widget, _, visitor_id, course, activity, student = checked
     from siteconfig import conf
 
     await conf.aget(widget.tenant)  # load settings for sync access during the reply
     if not await ratelimit.allow(widget, request):
         return _error("You're sending messages too quickly. Please wait a moment.", 429)
+    tools = StudentTools(widget, student, student["token"]) if StudentTools.available(widget, student) else None
     return await respond(request, widget.tenant, Conversation.Source.WIDGET, visitor_id, course=course,
-                         activity=activity)
+                         activity=activity, student_tools=tools)
 
 
 @login_not_required

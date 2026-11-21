@@ -79,11 +79,37 @@ class Widget(models.Model):
         help_text="Let the plugin send course content (activities, files, forum posts and dates) so students "
                   "on a course's pages get answers from that course only.",
     )
+    moodle_student_tools = models.BooleanField(
+        "Student data tools", default=False,
+        help_text="On a course's pages, let the assistant look up the asking student's own grades, completion and "
+                  "deadlines in Moodle when their question needs them (\"what is my grade?\", \"what do I need to "
+                  "complete this course?\"). Needs Course content above, the plugin's \"Students' own grades, "
+                  "completion and deadlines\" setting, and a chat model that can use tools. Each lookup adds a "
+                  "model round.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Widget for {self.tenant}"
+
+    def allows_site(self, url: str) -> bool:
+        """Whether a Moodle address is on one of the allowed websites (so saaschat only ever
+        calls back to the customer's own site)."""
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(url or "")
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            return False
+        host = parts.hostname.lower()
+        netloc = f"{host}:{parts.port}" if parts.port else host
+        for domain in self.domains():
+            domain_scheme, _, domain_host = domain.rpartition("://")
+            if domain_scheme and domain_scheme != parts.scheme:
+                continue
+            if domain_host in (host, netloc) or (domain_host.startswith("*.") and host.endswith(domain_host[1:])):
+                return True
+        return False
 
     def save(self, *args, **kwargs):
         if self.moodle_enabled and not self.moodle_shared_code_encrypted:

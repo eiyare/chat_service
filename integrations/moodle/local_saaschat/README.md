@@ -12,7 +12,9 @@ Moodle 4.0 or later.
 2. Under **Moodle**, tick **Moodle integration** and save. A **Shared code** appears.
 3. Choose **Chunk storage**: *saaschat only*, or *saaschat + copy in Moodle*.
 4. To answer from course content, tick **Course content**.
-5. Put `{name}` in the greeting where the user's name should go, e.g. `Hi {name}! …`
+5. To let the assistant look up students' own grades, completion and deadlines, also tick
+   **Student data tools** (see below).
+6. Put `{name}` in the greeting where the user's name should go, e.g. `Hi {name}! …`
    (visitors who aren't signed in see "Guest").
 
 ## Moodle side
@@ -62,6 +64,37 @@ extensions and overrides are not reflected.
 
 To send the content now instead of waiting:
 `php admin/cli/scheduled_task.php --execute='\local_saaschat\task\sync_courses'`
+
+## Students' own grades, completion and deadlines
+
+With **Student data tools** ticked in saaschat and **Students' own grades, completion and deadlines**
+ticked in the plugin settings, the assistant on a course's pages can answer questions such as
+"what is my grade?", "what do I still need to complete this course?" or "what's due this week?".
+It decides for itself what to look up, possibly several things in turn, from these tools:
+
+- **get_my_grades**: the student's grade report: each item they can see with its grade, range,
+  percentage, weight and feedback, the course total, and how much of the course weight is graded;
+- **get_my_completion**: the course's completion criteria and which are met, and each tracked
+  activity with its status and what it requires;
+- **get_my_deadlines**: what they still have to do, with due dates including their own extensions
+  and overrides, and whether each is overdue;
+- **search_course**: the course content, as for other questions.
+
+How the lookups are protected:
+
+- saaschat calls `local/saaschat/student.php` on this Moodle with the shared code **and the
+  student's own signed sign-in token** from the page they are chatting on, so it can only look up
+  the student who is asking, and only while they are signed in (tokens last 12 hours).
+- The lookup runs as that student, so Moodle decides what they may see: hidden and not yet released
+  grades stay hidden, and "Show gradebook to students" switched off in a course means no grades.
+- saaschat only calls back to a Moodle address that is one of the widget's **Allowed websites**.
+- The looked-up data goes to the chat model only. saaschat's Brain map records which tool was used
+  and a summary ("3 grade items, course total included"), not the grades. The assistant's reply,
+  like every reply, is kept in the student's conversation.
+
+The chat model must support tool calling (OpenAI, Anthropic, Gemini and most hosted models do;
+some local models don't). If it rejects tools, the assistant answers without them, and the Brain
+map says so. Completion answers need completion tracking turned on in the course.
 
 ## Passage copy
 

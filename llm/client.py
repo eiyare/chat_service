@@ -156,13 +156,17 @@ def _give_up(error: LLMError, model: str, attempt: int) -> LLMError:
 
 async def stream_chat(
     model: str, messages: list[dict], temperature: float | None = None, max_tokens: int | None = None,
-    retries: int | None = None,
+    retries: int | None = None, tools: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
     """Stream a chat completion.
 
     Yields events:
       {"type": "thinking", "text": str}   reasoning tokens (models that expose them)
       {"type": "content",  "text": str}   answer tokens
+      {"type": "tool_calls", "calls": [{"id", "name", "arguments"}]}
+                                          with ``tools`` (OpenAI format): the tools the model
+                                          wants called, just before "done" ("arguments" is
+                                          the raw JSON string)
       {"type": "done", "prompt_tokens": int|None, "completion_tokens": int|None,
        "duration_ms": int, "attempts": int}
     Token counts are None when the provider doesn't report usage.
@@ -178,10 +182,10 @@ async def stream_chat(
         attempt += 1
         streamed = False
         try:
-            async for event in _stream_once(model, messages, temperature, max_tokens):
+            async for event in _stream_once(model, messages, temperature, max_tokens, tools):
                 if event["type"] == "done":
                     event["attempts"] = attempt
-                else:
+                elif event["type"] in ("content", "thinking"):
                     streamed = True
                 yield event
             return
@@ -192,7 +196,7 @@ async def stream_chat(
             await _pause(attempt, error, model)
 
 
-async def _stream_once(model, messages, temperature, max_tokens):
+async def _stream_once(model, messages, temperature, max_tokens, tools=None):
     """One streamed completion (see stream_chat)."""
     litellm_model, params = resolve(model, await aget_config())
     if temperature is None:
@@ -201,6 +205,9 @@ async def _stream_once(model, messages, temperature, max_tokens):
         params["temperature"] = temperature
     if max_tokens:
         params["max_tokens"] = max_tokens  # LiteLLM's standard output cap, mapped per provider
+    if tools:
+        params["tools"] = tools
+    calls: dict[int, dict] = {}  # tool calls, assembled from streamed pieces by index
 
     started = time.monotonic()
     first_token = None
@@ -228,11 +235,25 @@ async def _stream_once(model, messages, temperature, max_tokens):
             if delta.content:
                 first_token = first_token or time.monotonic()
                 yield {"type": "content", "text": delta.content}
+            for piece in getattr(delta, "tool_calls", None) or []:
+                first_token = first_token or time.monotonic()
+                index = getattr(piece, "index", None)
+                if index is None:  # some providers omit it: a new id starts a new call
+                    index = len(calls) if getattr(piece, "id", None) else max(calls, default=0)
+                call = calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                call["id"] = getattr(piece, "id", None) or call["id"]
+                function = getattr(piece, "function", None)
+                if function is not None:
+                    call["name"] = getattr(function, "name", None) or call["name"]
+                    call["arguments"] += getattr(function, "arguments", None) or ""
     except LLMError:
         raise
     except Exception as exc:  # LiteLLM raises many provider-specific types
         raise _error(exc, model) from exc
 
+    if calls:
+        yield {"type": "tool_calls", "calls": [
+            {**c, "id": c["id"] or f"call_{i}"} for i, c in sorted(calls.items()) if c["name"]]}
     # Generation time (excludes model load / queueing) so tokens/sec is meaningful.
     duration_ms = int((time.monotonic() - (first_token or started)) * 1000)
     yield {

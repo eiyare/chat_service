@@ -15,7 +15,8 @@ class WidgetAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("tenant", "enabled", "title", "greeting", "accent_color", "position", "allowed_domains",
                            "rate_limit_per_minute", "public_key")}),
-        ("Moodle", {"fields": ("moodle_enabled", "moodle_shared_code", "chunk_storage", "moodle_courses")}),
+        ("Moodle", {"fields": ("moodle_enabled", "moodle_shared_code", "chunk_storage", "moodle_courses",
+                               "moodle_student_tools")}),
     )
 
     def get_readonly_fields(self, request, obj=None):

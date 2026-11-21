@@ -138,6 +138,15 @@ files take a moment. Duplicate files (same content) are rejected per workspace.
 Files are stored under `MEDIA_ROOT/rag/<slug>/` and are never served over HTTP.
 Scanned PDFs without a text layer fail with a clear message; they need OCR.
 
+## Moodle student data tools
+
+With a Moodle widget's **Student data tools** on (Django admin → Website widgets), the assistant
+becomes an agent on a course's pages: the chat model can call `get_my_grades`,
+`get_my_completion`, `get_my_deadlines` (looked up in Moodle as the asking student, through the
+plugin) and `search_course`, for up to 4 rounds, before answering. Its instructions are the
+platform setting **Instructions: Moodle student tools** (per-workspace override available). See
+`integrations/moodle/local_saaschat/README.md` for the Moodle side and how lookups are protected.
+
 ## Brain map
 
 Admin → **Brain map** lists the workspace's conversations (filter by channel, outcome or text)

@@ -222,7 +222,11 @@ class MoodleTests(TestCase):
     def test_token_verification(self):
         token = moodle.sign_user(self.code, 42, "Ada Lovelace")
         self.assertEqual(moodle.verify_user(self.code, token),
-                         {"id": "42", "name": "Ada Lovelace", "course": None, "activity": None})
+                         {"id": "42", "name": "Ada Lovelace", "course": None, "activity": None, "site": ""})
+        signed = moodle.sign_user(self.code, 42, "Ada", site="https://moodle.acme.com/")
+        self.assertEqual(moodle.verify_user(self.code, signed)["site"], "https://moodle.acme.com")
+        self.assertEqual(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", site="file:///x"))["site"],
+                         "")
         on_page = moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", course=7, activity=3))
         self.assertEqual((on_page["course"], on_page["activity"]), (7, 3))
         self.assertIsNone(moodle.verify_user(self.code, moodle.sign_user(self.code, 42, "Ada", activity=3))["activity"])
@@ -426,3 +430,125 @@ class MoodleCourseTests(TestCase):
         conv, events = self.ask(moodle.sign_user(self.code, 42, "Ada", course=7))
         self.assertEqual(conv.visitor_id, "moodle-user-00000042")
         self.assertTrue(events[-1]["faq"])
+
+
+GRADES = {"tool": "grades", "course": "Prompting", "data": {
+    "course_total": {"item": "Course total", "grade": "71.50", "percentage": "71.50 %"},
+    "summary": {"graded_items": 2, "not_yet_graded_items": 1},
+    "items": [{"item": "Essay", "grade": "68.00"}, {"item": "Quiz 1", "grade": "75.00"},
+              {"item": "Final project", "grade": "not graded yet"}]}}
+
+
+@override_settings(LLM_CHAT_MODELS=["p/chat"], LLM_DEFAULT_CHAT_MODEL="p/chat", LLM_EMBED_MODEL="p/embed",
+                   RAG_QUERY_PREFIX="", LLM_CONFIG_CACHE_SECONDS=0, RAG_NO_ANSWER_MESSAGE="NOT IN DOCS",
+                   CHAT_TOKEN_ALLOWANCE=0)
+@mock.patch("llm.embed", fake_embed)
+class StudentToolsTests(TestCase):
+    """The assistant as an agent for Moodle students: their own grades, completion and deadlines."""
+
+    def setUp(self):
+        llm.invalidate()
+        cache.clear()
+        self.t = Tenant.objects.create(name="Acme", slug="acme")
+        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com",
+                                       moodle_enabled=True, moodle_courses=True, moodle_student_tools=True)
+        self.code = self.w.moodle_shared_code
+        self.calls, self.lookups = [], []
+
+    def token(self, site="https://moodle.acme.com", course=7):
+        return moodle.sign_user(self.code, 42, "Ada", course=course, site=site)
+
+    async def fake_stream(self, model, messages, temperature=None, max_tokens=None, tools=None, **kwargs):
+        self.calls.append({"messages": [dict(m) for m in messages], "tools": tools})
+        if tools and not any(m["role"] == "tool" for m in messages):
+            yield {"type": "tool_calls", "calls": [{"id": "c1", "name": "get_my_grades", "arguments": "{}"}]}
+            yield {"type": "done", "prompt_tokens": 50, "completion_tokens": 5}
+            return
+        yield {"type": "content", "text": "Your course total is 71.50."}
+        yield {"type": "done", "prompt_tokens": 80, "completion_tokens": 9, "duration_ms": 3}
+
+    async def fake_lookup(self, tool):
+        self.lookups.append(tool)
+        return GRADES, 12
+
+    def ask(self, token, question="What is my grade?"):
+        with mock.patch("llm.stream_chat", self.fake_stream), \
+                mock.patch("widget.student_tools.StudentTools.lookup", lambda _, tool: self.fake_lookup(tool)):
+            resp = self.client.post(f"/w/{self.w.public_key}/api/send/", json.dumps(
+                {"message": question, "visitor_id": V1, "user_token": token}), content_type="application/json")
+            events = [json.loads(l) for l in async_to_sync(_read)(resp).decode().splitlines()]
+        return events, Message.objects.filter(role="assistant").last()
+
+    def test_grade_question_is_answered_with_the_students_own_grades(self):
+        events, reply = self.ask(self.token())
+        self.assertEqual(reply.content, "Your course total is 71.50.")
+        self.assertEqual(reply.outcome, Message.Outcome.ANSWERED)  # no passages, but the agent was asked
+        self.assertEqual(self.lookups, ["get_my_grades"])
+        self.assertEqual((reply.prompt_tokens, reply.completion_tokens), (130, 14))  # both rounds
+        second = self.calls[-1]["messages"]
+        self.assertEqual(second[-2]["tool_calls"][0]["function"]["name"], "get_my_grades")
+        self.assertEqual(second[-1]["role"], "tool")
+        self.assertIn("71.50", second[-1]["content"])
+        self.assertIn("get_my_grades", second[0]["content"])  # the tools instructions
+        # The brain map records the lookup, not the grades.
+        tool = next(s for s in reply.trace if s["key"] == "tool")
+        self.assertEqual((tool["label"], tool["summary"]), ("Tool: get_my_grades", "3 grade items, course total included"))
+        stored = json.dumps([s for s in reply.trace if s["key"] != "reply"])
+        self.assertNotIn("68.00", stored)
+
+    def test_tools_only_when_switched_on_and_for_the_students_own_site(self):
+        Widget.objects.filter(pk=self.w.pk).update(moodle_student_tools=False)
+        _, reply = self.ask(self.token())
+        self.assertEqual(reply.outcome, Message.Outcome.UNAVAILABLE)  # as before: no course content
+        Widget.objects.filter(pk=self.w.pk).update(moodle_student_tools=True)
+        for token in (self.token(site="https://evil.example.com"), self.token(site=""), self.token(course=None)):
+            self.calls.clear()
+            self.ask(token)
+            self.assertTrue(all(c["tools"] is None for c in self.calls))
+        self.assertEqual(self.lookups, [])
+
+    def test_model_that_rejects_tools_answers_without_them(self):
+        async def no_tools(model, messages, tools=None, **kwargs):
+            self.calls.append({"tools": tools})
+            if tools:
+                raise llm.LLMError("rejected", "bad_request", "BadRequestError: tools not supported")
+            yield {"type": "content", "text": "I can't look that up."}
+            yield {"type": "done", "prompt_tokens": 10, "completion_tokens": 3}
+
+        self.fake_stream = no_tools
+        _, reply = self.ask(self.token())
+        self.assertEqual(reply.content, "I can't look that up.")
+        self.assertEqual([c["tools"] is None for c in self.calls], [False, True])
+        self.assertIn("rejected the tools", json.dumps(reply.trace))
+
+    def test_site_must_be_an_allowed_website(self):
+        w = Widget(allowed_domains="moodle.acme.com\nhttps://lms.example.org\n*.school.edu")
+        for url, ok in [("https://moodle.acme.com", True), ("https://moodle.acme.com/moodle", True),
+                        ("http://moodle.acme.com", True), ("https://lms.example.org", True),
+                        ("http://lms.example.org", False), ("https://x.school.edu", True),
+                        ("https://acme.com", False), ("https://moodle.acme.com.evil.io", False), ("ftp://moodle.acme.com", False)]:
+            with self.subTest(url):
+                self.assertEqual(w.allows_site(url), ok)
+
+    def test_lookup_calls_the_plugin_as_the_student(self):
+        from widget.student_tools import StudentTools
+
+        sent = {}
+
+        class FakeResponse:
+            status_code = 403
+
+            def json(self):
+                return {"error": "Student data is turned off"}
+
+        async def post(client, url, json=None, headers=None):
+            sent.update(url=url, json=json, headers=headers)
+            return FakeResponse()
+
+        tools = StudentTools(self.w, {"site": "https://moodle.acme.com/"}, "the-token")
+        with mock.patch("httpx.AsyncClient.post", post):
+            data, _ = async_to_sync(tools.lookup)("get_my_completion")
+        self.assertEqual(sent["url"], "https://moodle.acme.com/local/saaschat/student.php")
+        self.assertEqual(sent["json"], {"token": "the-token", "tool": "completion"})
+        self.assertEqual(sent["headers"]["X-Saaschat-Code"], self.code)
+        self.assertEqual(data, {"error": "Student data is turned off"})

@@ -3,6 +3,7 @@
 The plugin signs the logged-in student with the widget's shared code:
 
     payload = base64url(JSON {"sub": <Moodle user id>, "name": <full name>, "exp": <unix time>,
+                              "site": <the Moodle site's address, for student data lookups>,
                               "course": <course ID, only on the pages of a course the student can access>,
                               "cm": <course module ID, on an activity's pages within that course>})
     token   = payload + "." + hex(HMAC-SHA256(shared code, payload))
@@ -15,6 +16,7 @@ import hashlib
 import hmac
 import json
 import time
+from urllib.parse import urlsplit
 
 MAX_NAME = 80
 
@@ -23,9 +25,11 @@ def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def sign_user(code: str, user_id, name: str, ttl: int = 12 * 3600, course=None, activity=None) -> str:
+def sign_user(code: str, user_id, name: str, ttl: int = 12 * 3600, course=None, activity=None, site=None) -> str:
     """Make a token the way the plugin does (used by tests and diagnostics)."""
     data = {"sub": user_id, "name": name, "exp": int(time.time()) + ttl}
+    if site is not None:
+        data["site"] = site
     if course is not None:
         data["course"] = course
     if activity is not None:
@@ -37,7 +41,7 @@ def sign_user(code: str, user_id, name: str, ttl: int = 12 * 3600, course=None, 
 def verify_user(code: str, token) -> dict | None:
     """{"id": "...", "name": "...", "course": int | None, "activity": int | None} for a valid,
     unexpired token, else None. "activity" (the course module the student is viewing) is
-    only kept with a course."""
+    only kept with a course. "site" is the Moodle address (http/https URL) or ""."""
     if not code or not isinstance(token, str) or token.count(".") != 1 or len(token) > 2000:
         return None
     payload, signature = token.split(".")
@@ -56,7 +60,11 @@ def verify_user(code: str, token) -> dict | None:
     if exp < time.time() or not user_id.isdigit() or (course is not None and course <= 0) \
             or (activity is not None and activity <= 0):
         return None
-    return {"id": user_id, "name": str(data.get("name") or "")[:MAX_NAME], "course": course, "activity": activity}
+    site = str(data.get("site") or "").rstrip("/")
+    if site and (urlsplit(site).scheme not in ("http", "https") or not urlsplit(site).hostname):
+        site = ""
+    return {"id": user_id, "name": str(data.get("name") or "")[:MAX_NAME], "course": course, "activity": activity,
+            "site": site}
 
 
 def visitor_id(user: dict) -> str:

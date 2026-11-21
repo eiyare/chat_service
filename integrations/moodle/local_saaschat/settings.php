@@ -28,4 +28,6 @@ if ($hassiteconfig) {
         ]));
     $settings->add(new admin_setting_configtext('local_saaschat/courseids',
         get_string('courseids', 'local_saaschat'), get_string('courseids_desc', 'local_saaschat'), '', PARAM_SEQUENCE));
+    $settings->add(new admin_setting_configcheckbox('local_saaschat/studentdata',
+        get_string('studentdata', 'local_saaschat'), get_string('studentdata_desc', 'local_saaschat'), 0));
 }
