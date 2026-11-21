@@ -24,12 +24,19 @@ oo kuku shey make go far
 
 
 def stem(word: str) -> str:
-    """Very light suffix stripping so 'costs'~'cost', 'carried'~'carry', 'offers'~'offer'."""
+    """Very light suffix stripping so 'costs'~'cost', 'carried'~'carry', 'offers'~'offer',
+    'quizzes'~'quiz', 'pages'~'page', 'matches'~'match'."""
     if len(word) > 4 and word.endswith("ies"):
         return word[:-3] + "y"
     if len(word) > 4 and word.endswith("ied"):
         return word[:-3] + "y"
-    for suffix in ("ing", "ed", "es", "s"):
+    if len(word) > 5 and word.endswith("zzes"):  # quizzes ~ quiz
+        return word[:-3]
+    if word.endswith(("sses", "xes", "ches", "shes")) and len(word) - 2 >= 3:  # classes, boxes, matches
+        return word[:-2]
+    for suffix in ("ing", "ed", "s"):  # pages ~ page, courses ~ course (not "pag", "cours")
+        if suffix == "s" and word.endswith("ss"):  # class, business, access
+            continue
         if word.endswith(suffix) and len(word) - len(suffix) >= 3:
             return word[: -len(suffix)]
     return word

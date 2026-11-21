@@ -331,6 +331,9 @@ class LexicalTests(SimpleTestCase):
         self.assertEqual(terms("What does the Growth plan cost?"), {"growth", "plan", "cost"})
         self.assertEqual(terms("Costs, offers and carried"), {"cost", "offer", "carry"})
         self.assertEqual(terms("What is it?"), set())
+        # Plurals match singulars ("How many quizzes?" vs "Quiz 1 (Quiz)").
+        self.assertEqual(terms("quizzes pages courses files classes matches"),
+                         terms("quiz page course file class match"))
 
     def test_coverage(self):
         from .lexical import coverage
