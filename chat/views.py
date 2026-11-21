@@ -25,6 +25,7 @@ from . import persona
 from . import rewrite as rewrite_lib
 from . import usage as usage_lib
 from .models import Conversation, Message
+from .trace import Trace, excerpt
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,46 @@ def _ndjson(event: dict) -> bytes:
 
 
 _CITATION = re.compile(r"\s?\[\d+\](?:\[\d+\])*")
+_CITED = re.compile(r"\[(\d+)\]")
+
+_KB_LABELS = {
+    retrieval.KB.READY: "Ready",
+    retrieval.KB.NO_DOCUMENTS: "No documents yet",
+    retrieval.KB.NO_EMBEDDING_MODEL: "No embedding model enabled",
+    retrieval.KB.NEEDS_REINDEX: "Documents need reindexing",
+}
+
+
+def _search_summary(passages, t: dict) -> str:
+    if not t.get("searched"):
+        return "No searchable passages"
+    if passages:
+        return (f"{len(passages)} passage{'s' if len(passages) > 1 else ''} kept from {t['searched']} searched "
+                f"(best similarity {t['best_score']:.2f})")
+    best = t.get("best_score")
+    return (f"Nothing relevant enough in {t['searched']} passages"
+            + (f" (best similarity {best:.2f}, cut-off {t['min_score']:.2f})" if best is not None else ""))
+
+
+def _search_detail(t: dict) -> dict:
+    """The search trace, as brain-map step details."""
+    if not t:
+        return {}
+    strong = t.get("strong_at")
+    return {
+        "thresholds": {
+            "relevance cut-off (meaning)": round(t["min_score"], 3),
+            "strong match (skips key-word check)": round(strong, 3) if strong not in (None, float("inf")) else "off",
+            "key-word route coverage": t["keyword_min_coverage"],
+            "key-word check coverage": t["min_term_overlap"],
+            "passages per answer": t["top_k"],
+        },
+        "found": {
+            "by meaning": t["by_meaning"], "by key words": t["by_keywords"],
+            "from the page being viewed": t["page_passages"], "key-word coverage reached": t.get("key_word_coverage"),
+        },
+        "candidates": t.get("candidates"),
+    }
 
 
 def strip_trailing_no_answer(content: str, sentences) -> str:
@@ -219,10 +260,18 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     # The assistant's persona: small talk is answered directly; being addressed by
     # name ("Hi Tosin, ...") must not affect FAQ matching or document search.
     name = tenant.chatbot_name
+    trace = Trace()  # the brain map of this reply
     small_talk = persona.intent(text, name, cfg.small_talk)
     lang = persona.language(text)  # reply in Nigerian Pidgin when asked in Pidgin
     no_answer = persona.no_answer(cfg, lang)
     search = persona.search_text(text, name)
+    trace.add("question", "Question received", "info", text,
+              language="Nigerian Pidgin" if lang == "pcm" else "English",
+              searched_as=search if search != text else None, model=model,
+              channel=Conversation.Source(source).label, history_limit=cfg.history_limit)
+    trace.add("small_talk", "Small talk check", "hit" if small_talk else "pass",
+              f"Recognised as {small_talk.replace('_', ' ')}: answered with the persona's reply" if small_talk
+              else ("Not small talk" if cfg.small_talk else "Small-talk replies are switched off"))
     queries = [search]
     previous_text = previous_answer = None
     if conversation is not None and not small_talk:
@@ -238,44 +287,93 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     place = await retrieval.moodle_place(tenant, course, activity)
     kb_status = await retrieval.kb_status(tenant, course)
     faqs = [] if course is not None else await faq.enabled_for(tenant)
+    trace.add("context", "Context", "info",
+              "Follow-up to an earlier question" if previous_text else
+              ("First question in this conversation" if conversation is None else "No earlier question to build on"),
+              earlier_question=previous_text, earlier_answer=excerpt(previous_answer) if previous_answer else None,
+              moodle_course=(place.course or f"#{course}") if course is not None else None,
+              moodle_page=place.page or (f"activity #{activity}" if activity else None),
+              searching="this course's content only" if course is not None else "the workspace's documents and FAQs",
+              knowledge_base=_KB_LABELS.get(kb_status, kb_status), faqs=len(faqs) if course is None else None)
     passages = retrieval.Results()
     faq_hit = None
     retrieval_ms = None
     search_started = time.monotonic()
+    search_trace = {}
 
     # 1. Same question as an FAQ (ignoring case/punctuation): answer it, no embedding needed.
     faq_hit = None if small_talk else faq.direct_match(search, None, faqs)
+    if small_talk:
+        trace.add("faq_exact", "FAQ: same question", "skip", "Small talk")
+    elif not faqs:
+        trace.add("faq_exact", "FAQ: same question", "skip",
+                  "FAQs aren't used on Moodle course pages" if course is not None else "The workspace has no FAQs")
+    else:
+        trace.add("faq_exact", "FAQ: same question", "hit" if faq_hit else "miss",
+                  f'Same wording as the FAQ "{faq_hit.faq.question}"' if faq_hit
+                  else f"No FAQ asked in the same words ({len(faqs)} checked)")
     search_query, rewrite_tokens = search, (0, 0)
-    if (not small_talk and faq_hit is None and kb_status == retrieval.KB.READY and cfg.rewrite_queries
-            and not (await usage_lib.current(tenant)).exhausted):
+    exhausted = (not small_talk and faq_hit is None and kb_status == retrieval.KB.READY and cfg.rewrite_queries
+                 and (await usage_lib.current(tenant)).exhausted)
+    skip_rewrite = ("Small talk" if small_talk else "Answered by an FAQ" if faq_hit else
+                    f"Nothing to search: {_KB_LABELS.get(kb_status, kb_status).lower()}" if kb_status != retrieval.KB.READY
+                    else "Switched off for this workspace" if not cfg.rewrite_queries else
+                    "The workspace's token allowance is used up" if exhausted else None)
+    if skip_rewrite:
+        trace.add("rewrite", "Question rewriting", "skip", skip_rewrite)
+    else:
         # Turn the question into a plain-English search query (Pidgin, paraphrases, follow-ups).
+        t = trace.clock()
         rewritten, *rewrite_tokens = await rewrite_lib.rewrite(model, search, previous_text, cfg,
                                                                answer=previous_answer, page=place.page)
+        given = rewrite_lib.rewrite_input(search, previous_text, previous_answer, place.page)
         if rewritten:
             search_query = rewritten
             queries = [rewritten] + queries
+        trace.add("rewrite", "Question rewriting", "pass" if rewritten else "fail",
+                  f'Searching for "{rewritten}"' if rewritten else "No usable rewrite: searching with the question as asked",
+                  trace.since(t), given_to_model=given, rewritten=rewritten,
+                  tokens=f"{rewrite_tokens[0]} in / {rewrite_tokens[1]} out" if any(rewrite_tokens) else None)
     original = queries.index(search)  # the user's own wording, for FAQ matching
     if (not small_talk and faq_hit is None and (faqs or kb_status == retrieval.KB.READY)
             and llm_config.embed_model):
         try:
             # The questions are embedded once, for FAQ matching and document search alike.
+            t = trace.clock()
             query_vectors = await retrieval.embed_queries(queries)
+            trace.add("embed", "Embedding", "pass", f"{len(queries)} search text{'s' if len(queries) > 1 else ''} "
+                      f"turned into vectors with {llm_config.embed_model}", trace.since(t), searched_with=queries)
             indexed = await faq.index(faqs, llm_config) if faqs else []
             # 2. Close FAQ match (wording and meaning): answer it without the model.
             faq_hit = faq.direct_match(search, query_vectors[original], indexed, llm_config.faq_cutoff)
+            if indexed:
+                trace.add("faq_close", "FAQ: close match", "hit" if faq_hit else "miss",
+                          f'Matches the FAQ "{faq_hit.faq.question}" (similarity {faq_hit.score:.2f})' if faq_hit
+                          else "No FAQ close enough in wording and meaning",
+                          cutoff=llm_config.faq_cutoff, phrasing=faq_hit.phrasing if faq_hit else None)
             if faq_hit is None:
                 # 3. Document search, plus close FAQs as extra context for the model.
                 if kb_status == retrieval.KB.READY:
+                    t = trace.clock()
                     passages = await retrieval.search(tenant, queries, query_vectors=query_vectors, course=course,
-                                                      page_document=place.page_document_id)
+                                                      page_document=place.page_document_id, trace=search_trace)
+                    trace.add("search", "Document search", "pass" if passages else "miss",
+                              _search_summary(passages, search_trace), trace.since(t), **_search_detail(search_trace))
+                else:
+                    trace.add("search", "Document search", "skip", _KB_LABELS.get(kb_status, kb_status))
                 faq_context = faq.context_passages(query_vectors[original], indexed, llm_config.faq_context_cutoff)
                 if faq_context:
                     best = passages.best_score
                     passages = retrieval.Results(faq_context + list(passages))
                     passages.best_score = best
+                    trace.add("faq_context", "FAQs as context", "pass",
+                              f"{len(faq_context)} related FAQ{'s' if len(faq_context) > 1 else ''} added for the model",
+                              faqs=[p.document for p in faq_context], cutoff=llm_config.faq_context_cutoff)
         except llm.LLMError as exc:
             return _json_error(f"Document search failed: {exc.public()}", status=503)
         retrieval_ms = int((time.monotonic() - search_started) * 1000)
+    elif not small_talk and faq_hit is None and not llm_config.embed_model:
+        trace.add("search", "Document search", "skip", "No embedding model is enabled")
 
     # --- Persist the question ---
     if conversation is not None:
@@ -320,13 +418,18 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             conf.fill(cfg.no_answer_message, cfg).strip(), no_answer.strip()
         ):
             outcome = Message.Outcome.DECLINED  # passages were given, but the model found no answer in them
+            trace.add("declined", "Answer check", "miss",
+                      "The model replied that the passages don't answer the question")
+        response_ms = int((time.monotonic() - started) * 1000)
+        trace.add("reply", "Reply", "fail" if outcome == Message.Outcome.ERROR else "info",
+                  Message.Outcome(outcome).label, response_ms)
         if any(rewrite_tokens):  # the rewriting call counts toward usage too
             prompt_tokens = (prompt_tokens or 0) + rewrite_tokens[0]
             completion_tokens = (completion_tokens or 0) + rewrite_tokens[1]
         msg = await Message.objects.acreate(
             conversation=conversation, role=Message.Role.ASSISTANT, content=content,
             thinking=thinking, model=reply_model, sources=sources if content else [],
-            response_ms=int((time.monotonic() - started) * 1000), search_query=search_query[:500],
+            response_ms=response_ms, search_query=search_query[:500], trace=trace.steps,
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             outcome=outcome, retrieval_ms=retrieval_ms, passage_count=passage_count, top_score=top_score,
             error=error.summary() if error else "",
@@ -375,11 +478,16 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
     token_policy = tenant.token_policy
 
     async def model_reply():
-        messages = (
-            [{"role": "system", "content": grounding_prompt(cfg, no_answer)}]
-            + history
-            + [{"role": "user", "content": grounded_question(text, passages, lang, place, timezone.localdate())}]
-        )
+        system = grounding_prompt(cfg, no_answer)
+        question = grounded_question(text, passages, lang, place, timezone.localdate())
+        messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": question}]
+        trace.add("prompt", "Prompt", "pass",
+                  f"{len(passages)} passage{'s' if len(passages) != 1 else ''} and {len(history)} earlier "
+                  f"message{'s' if len(history) != 1 else ''} sent to {llm_config.label(model)}",
+                  grounding_mode=cfg.grounding_mode, temperature=cfg.temperature,
+                  max_output_tokens=token_policy.max_output_tokens, retries_allowed=cfg.provider_retries,
+                  system_prompt=system, question_with_passages=question)
+        model_started = trace.clock()
         content, thinking = [], []
         yield _ndjson(meta)
         yield _ndjson({"type": "sources", "sources": sources})
@@ -392,8 +500,23 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
                 elif event["type"] == "thinking":
                     thinking.append(event["text"])
                 elif event["type"] == "done":
+                    trace.add("model", "Model answer", "pass",
+                              f"{llm_config.label(model)} answered"
+                              + (f" after {event['attempts']} attempts" if event.get("attempts", 1) > 1 else ""),
+                              trace.since(model_started),
+                              tokens=f"{event.get('prompt_tokens')} in / {event.get('completion_tokens')} out",
+                              generation_time=f"{event['duration_ms']} ms" if event.get("duration_ms") is not None
+                              else None, attempts=event.get("attempts") if event.get("attempts", 1) > 1 else None,
+                              reasoning=excerpt("".join(thinking), 4000) if thinking else None)
                     full = "".join(content)
                     cleaned = strip_trailing_no_answer(full, (no_answer, conf.fill(cfg.no_answer_message, cfg)))
+                    cited = sorted({int(n) for n in _CITED.findall(cleaned) if 0 < int(n) <= len(passages)})
+                    trace.add("checks", "Answer checks", "pass",
+                              "Cites " + ", ".join(f"[{n}] {passages[n - 1].document}" for n in cited) if cited
+                              else "No passages cited",
+                              trailing_no_answer_removed="yes" if cleaned != full else None,
+                              uncited_passages=[f"[{n}] {p.document}" for n, p in enumerate(passages, 1)
+                                                if n not in cited] or None)
                     if cleaned != full:
                         content[:] = [cleaned]
                         yield _ndjson({"type": "replace", "text": cleaned})  # fix what the user sees
@@ -409,9 +532,14 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
                 yield _ndjson(event)
         except asyncio.CancelledError:
             # Client disconnected (e.g. pressed Stop): keep what was generated so far.
+            trace.add("model", "Model answer", "fail", "Stopped by the user before the answer was finished",
+                      trace.since(model_started))
             await save_reply("".join(content), "".join(thinking), model, Message.Outcome.STOPPED)
             raise
         except llm.LLMError as exc:
+            trace.add("model", "Model answer", "fail", str(exc), trace.since(model_started), kind=exc.kind,
+                      attempts=exc.attempts, provider_error=exc.detail,
+                      cut_off="yes: the partial answer was kept" if exc.partial else None)
             await save_reply("".join(content), "".join(thinking), model, Message.Outcome.ERROR, error=exc)
             if settings.DEBUG:
                 yield debug_event(Message.Outcome.ERROR, exc.attempts, exc)
@@ -423,18 +551,28 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         retrieval.KB.NEEDS_REINDEX: conf.fill(cfg.needs_reindex_message, cfg),
     }
     usage = await usage_lib.current(tenant) if passages and not faq_hit else None
+
+    def route(summary, status="pass"):
+        trace.add("route", "Route", status, summary)
+
     if small_talk:
+        route("Small talk: the persona's reply, no model call", "hit")
         events = fixed_reply(persona.reply(small_talk, cfg, lang), Message.Outcome.SMALL_TALK)
     elif faq_hit:
+        route("FAQ answer, no model call", "hit")
         events = fixed_reply(faq_hit.faq.answer, Message.Outcome.FAQ)
     elif passages and usage.exhausted:
+        route("Passages found, but the workspace's token allowance is used up", "fail")
         reset = date_format(usage.resets_at, "DATETIME_FORMAT" if token_policy.period == "day" else "DATE_FORMAT")
         events = fixed_reply(conf.fill(cfg.token_limit_message, cfg).replace("{reset}", reset), Message.Outcome.LIMITED)
     elif passages:
+        route("Passages found: ask the model to answer from them")
         events = model_reply()
     elif kb_status in unavailable and not faqs:
+        route(f"{_KB_LABELS[kb_status]}: fixed reply, no model call", "fail")
         events = fixed_reply(unavailable[kb_status], Message.Outcome.UNAVAILABLE)
     else:
+        route("Nothing relevant found: the not-found reply, no model call", "miss")
         events = fixed_reply(no_answer, Message.Outcome.NOT_FOUND)
 
     response = StreamingHttpResponse(events, content_type="application/x-ndjson")

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ conversation.title }} · Brain map · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}"><link rel="stylesheet" href="{% static 'rag/brainmap.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+<header class="ws-bar">
+  <a class="ws-title" href="{% url 'chat:home' tenant_slug=tenant.slug %}">{{ tenant.name }}</a>
+  {% include "workspace/_nav.html" with active="admin" %}
+  {% include "workspace/_account.html" %}
+</header>
+
+<main class="ws-main bm">
+  <div class="page-head">
+    <h1>Knowledge base</h1>
+  </div>
+  {% include "rag/_tabs.html" with tab="brain_map" %}
+
+  <a class="bm-back" href="{% url 'rag:brain_map' tenant_slug=tenant.slug %}">&larr; All conversations</a>
+  <div class="bm-head">
+    <h2>{{ conversation.title }}</h2>
+    <p class="muted">{{ who }} · started {{ conversation.created_at|date:"j M Y, H:i" }} · {{ exchanges|length }} question{{ exchanges|length|pluralize }}</p>
+  </div>
+
+  <div class="bm-legend" aria-label="Step colours">
+    <span><i class="dot info"></i>Context</span><span><i class="dot pass"></i>Passed on</span>
+    <span><i class="dot hit"></i>Answered here</span><span><i class="dot miss"></i>Nothing found</span>
+    <span><i class="dot skip"></i>Skipped</span><span><i class="dot fail"></i>Problem</span>
+  </div>
+
+  {% for ex in exchanges %}
+    <article class="bm-turn">
+      {% if ex.question %}
+        <div class="bm-q"><span class="bm-who">Question</span>{{ ex.question.content|linebreaksbr }}
+          <time class="muted" datetime="{{ ex.question.created_at|date:'c' }}">{{ ex.question.created_at|date:"j M, H:i:s" }}</time></div>
+      {% endif %}
+      {% for r in ex.replies %}
+        <div class="bm-a">
+          <div class="bm-a-head">
+            <span class="bm-who">Reply</span>
+            <span class="chip {% if r.m.outcome in 'answered faq small_talk' %}ok{% elif r.m.outcome in 'not_found declined stopped' %}warn{% else %}bad{% endif %}">{{ r.m.get_outcome_display|default:"—" }}</span>
+            {% if r.time %}<span class="muted">{{ r.time }}</span>{% endif %}
+            {% if r.m.model %}<span class="muted">{{ r.m.model }}</span>{% endif %}
+          </div>
+          {% if r.m.content %}<div class="bm-a-text">{{ r.m.content|linebreaksbr }}</div>{% else %}<div class="bm-a-text muted">No reply text{% if r.m.error %}: {{ r.m.error }}{% endif %}</div>{% endif %}
+        </div>
+
+        {% if r.steps %}
+          <div class="bm-timing" role="img" aria-label="Where the time went">
+            {% for s in r.steps %}{% if s.share %}<span class="seg-{{ s.status }}" style="width: {{ s.share }}%" title="{{ s.label }}: {{ s.time }}"></span>{% endif %}{% endfor %}
+          </div>
+          <ol class="bm-flow">
+            {% for s in r.steps %}
+              <li class="bm-step {{ s.status }}{% if r.ended and s.n == r.ended.n %} ended{% endif %}">
+                {% if s.rows %}<details><summary>{% else %}<div class="bm-sum">{% endif %}
+                  <i class="dot {{ s.status }}" title="{{ s.status_label }}"></i>
+                  <span class="bm-label">{{ s.label }}</span>
+                  <span class="bm-summary">{{ s.summary }}</span>
+                  {% if s.time %}<span class="bm-ms">{{ s.time }}</span>{% endif %}
+                {% if s.rows %}</summary>
+                  <div class="bm-detail">
+                    {% for row in s.rows %}
+                      {% if row.kind == "pair" %}
+                        <div class="bm-pair"><span>{{ row.label }}</span><span>{{ row.value }}</span></div>
+                      {% elif row.kind == "text" %}
+                        <div class="bm-block"><span>{{ row.label }}</span><pre>{{ row.text }}</pre></div>
+                      {% elif row.kind == "list" %}
+                        <div class="bm-block"><span>{{ row.label }}</span><ul>{% for item in row.items %}<li>{{ item }}</li>{% endfor %}</ul></div>
+                      {% elif row.kind == "pairs" %}
+                        <div class="bm-block"><span>{{ row.label }}</span>
+                          <dl>{% for k, v in row.pairs %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl></div>
+                      {% elif row.kind == "candidates" %}
+                        <div class="bm-block"><span>{{ row.label }}</span>
+                          <div class="table-wrap"><table class="docs bm-cands">
+                            <thead><tr><th scope="col">Kept</th><th scope="col" class="num">Similarity</th><th scope="col">Passage</th><th scope="col">Found by</th><th scope="col">Why</th></tr></thead>
+                            <tbody>
+                              {% for c in row.items %}
+                                <tr class="{% if c.kept %}kept{% else %}dropped{% endif %}">
+                                  <td>{% if c.kept %}<span class="yes" aria-label="Kept">&#10003;</span>{% else %}<span class="no" aria-label="Dropped">&#10007;</span>{% endif %}</td>
+                                  <td class="num">{{ c.score }}</td>
+                                  <td><strong>{{ c.document }}</strong> · passage {{ c.passage }}<div class="bm-excerpt">{{ c.text }}</div></td>
+                                  <td class="muted">{{ c.found_by }}</td>
+                                  <td>{{ c.why }}</td>
+                                </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table></div></div>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                </details>{% else %}</div>{% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+          {% if not r.recorded %}<p class="stat-note">This reply was saved before brain maps were recorded, so only an outline from its saved figures is shown.</p>{% endif %}
+        {% endif %}
+      {% empty %}
+        <p class="bm-empty">No reply was saved for this question.</p>
+      {% endfor %}
+    </article>
+  {% empty %}
+    <p class="bm-empty">This conversation has no messages.</p>
+  {% endfor %}
+</main>
+{% endblock %}

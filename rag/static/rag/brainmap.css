@@ -1,0 +1,98 @@
+/* Brain map: conversations and the steps behind each reply. Tokens from portal/site.css and rag/admin.css. */
+.bm { max-width: 980px; }
+.bm .muted { color: var(--muted); }
+
+.bm-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; }
+.bm-filters input, .bm-filters select {
+  font: inherit; font-size: 14px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface); color: var(--text);
+}
+.bm-filters input { flex: 1 1 220px; min-width: 0; }
+.bm-list .name a { color: var(--text); font-weight: 500; }
+.bm-chips { white-space: nowrap; }
+.chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; margin-right: 4px; background: var(--hover); }
+.chip.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.chip.bad { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.bm-pager { display: flex; gap: 16px; justify-content: center; align-items: center; margin-top: 14px; font-size: 14px; }
+.bm-empty { color: var(--muted); padding: 24px 0; }
+
+.bm-back { display: inline-block; margin: 0 0 16px; font-size: 14px; color: var(--muted); text-decoration: none; }
+.bm-back:hover { color: var(--text); }
+.bm-head h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 4px; overflow-wrap: anywhere; }
+.bm-head p { margin: 0 0 16px; font-size: 14px; }
+
+.bm-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+.bm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Step colours */
+.bm { --st-info: var(--muted); --st-pass: var(--accent); --st-hit: var(--ok); --st-miss: var(--warn);
+      --st-skip: color-mix(in srgb, var(--muted) 45%, transparent); --st-fail: var(--error); }
+.dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--st-info); }
+.dot.pass { background: var(--st-pass); } .dot.hit { background: var(--st-hit); } .dot.miss { background: var(--st-miss); }
+.dot.skip { background: transparent; border: 1.5px solid var(--st-skip); width: 9px; height: 9px; }
+.dot.fail { background: var(--st-fail); }
+
+.bm-turn { border-top: 1px solid var(--border); padding: 22px 0 8px; }
+.bm-who { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+.bm-q { background: var(--hover); border-radius: 12px; padding: 12px 14px; overflow-wrap: anywhere; }
+.bm-q time { display: block; font-size: 12px; margin-top: 6px; }
+.bm-a { margin: 12px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.bm-a-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.bm-a-head .bm-who { margin: 0; }
+.bm-a-text { font-size: 14px; overflow-wrap: anywhere; max-height: 16em; overflow: auto; }
+
+.bm-timing { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--hover); margin: 0 0 10px; }
+.bm-timing span { display: block; min-width: 2px; }
+.bm-timing span + span { border-left: 1px solid var(--bg); }
+.seg-pass { background: var(--st-pass); } .seg-hit { background: var(--st-hit); } .seg-miss { background: var(--st-miss); }
+.seg-fail { background: var(--st-fail); } .seg-info, .seg-skip { background: var(--st-info); }
+
+.bm-flow { list-style: none; margin: 0 0 12px; padding: 0; position: relative; }
+.bm-flow::before { content: ""; position: absolute; left: 16px; top: 14px; bottom: 14px; width: 2px; background: var(--border); }
+.bm-step { position: relative; }
+.bm-step summary, .bm-sum {
+  display: flex; align-items: baseline; gap: 10px; padding: 7px 10px 7px 12px; border-radius: 9px; font-size: 14px;
+  list-style: none;
+}
+.bm-step summary { cursor: pointer; }
+.bm-step summary::-webkit-details-marker { display: none; }
+.bm-step summary:hover { background: var(--hover); }
+.bm-step summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bm-step .dot { position: relative; z-index: 1; align-self: center; box-shadow: 0 0 0 3px var(--bg); }
+.bm-label { font-weight: 600; white-space: nowrap; }
+.bm-summary { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.bm-ms { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bm-step summary .bm-ms::after { content: " ▸"; }
+.bm-step details[open] summary .bm-ms::after { content: " ▾"; }
+.bm-step summary:not(:has(.bm-ms))::after { content: "▸"; font-size: 12px; color: var(--muted); }
+.bm-step details[open] summary:not(:has(.bm-ms))::after { content: "▾"; }
+.bm-step.skip .bm-label { color: var(--muted); font-weight: 500; }
+.bm-step.ended > details > summary, .bm-step.ended > .bm-sum { background: color-mix(in srgb, var(--ok) 9%, transparent); }
+.bm-step.fail .bm-summary { color: var(--error); }
+
+.bm-detail { margin: 2px 0 10px 32px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 13px; display: grid; gap: 8px; }
+.bm-pair { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 10px; }
+.bm-pair > span:first-child, .bm-block > span:first-child { color: var(--muted); }
+.bm-pair > span:last-child { overflow-wrap: anywhere; }
+.bm-block > span:first-child { display: block; margin-bottom: 4px; }
+.bm-block pre {
+  margin: 0; padding: 10px; border-radius: 8px; background: var(--hover); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 22em; overflow: auto; font-size: 12px; line-height: 1.5;
+}
+.bm-block ul { margin: 0; padding-left: 18px; }
+.bm-block dl { display: grid; grid-template-columns: minmax(120px, 240px) 1fr; gap: 3px 10px; margin: 0; }
+.bm-block dt { color: var(--muted); } .bm-block dd { margin: 0; }
+.bm-cands { font-size: 12px; }
+.bm-cands td { vertical-align: top; padding: 8px 10px; }
+.bm-cands tr.dropped td { opacity: .75; }
+.bm-cands .yes { color: var(--ok); font-weight: 700; } .bm-cands .no { color: var(--error); font-weight: 700; }
+.bm-excerpt { color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .bm-step summary, .bm-sum { flex-wrap: wrap; }
+  .bm-summary { flex-basis: 100%; padding-left: 20px; }
+  .bm-detail { margin-left: 8px; }
+  .bm-pair, .bm-block dl { grid-template-columns: 1fr; gap: 2px; }
+  .bm-list td:nth-child(2), .bm-list th:nth-child(2) { display: none; }
+}

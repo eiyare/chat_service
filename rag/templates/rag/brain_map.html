@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Brain map · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}"><link rel="stylesheet" href="{% static 'rag/brainmap.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+<header class="ws-bar">
+  <a class="ws-title" href="{% url 'chat:home' tenant_slug=tenant.slug %}">{{ tenant.name }}</a>
+  {% include "workspace/_nav.html" with active="admin" %}
+  {% include "workspace/_account.html" %}
+</header>
+
+<main class="ws-main bm">
+  <div class="page-head">
+    <h1>Knowledge base</h1>
+    <p>Open a conversation to see, for every reply, each step the assistant took: how the question was understood and searched, which passages were kept or dropped and why, what the model was sent, and how long each step took.</p>
+  </div>
+  {% include "rag/_tabs.html" with tab="brain_map" %}
+
+  <form class="bm-filters" method="get" role="search">
+    <label class="sr-only" for="bm-q">Search messages</label>
+    <input id="bm-q" type="search" name="q" value="{{ q }}" placeholder="Search questions and replies">
+    <label class="sr-only" for="bm-channel">Channel</label>
+    <select id="bm-channel" name="channel">
+      {% for value, label in channels %}<option value="{{ value }}"{% if value == channel %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <label class="sr-only" for="bm-outcome">Outcome</label>
+    <select id="bm-outcome" name="outcome">
+      {% for value, label in outcomes %}<option value="{{ value }}"{% if value == outcome %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Filter</button>
+  </form>
+
+  <section aria-labelledby="bm-list-h">
+    <h2 id="bm-list-h" class="section-h">Conversations <span class="count">{{ total }}</span></h2>
+    {% if rows %}
+      <div class="table-wrap">
+        <table class="docs bm-list">
+          <thead><tr>
+            <th scope="col">Conversation</th><th scope="col">Who</th>
+            <th scope="col" class="num">Questions</th><th scope="col">Outcomes</th><th scope="col" class="num">Last message</th>
+          </tr></thead>
+          <tbody>
+            {% for r in rows %}
+              <tr>
+                <td class="name"><a href="{% url 'rag:brain_map_conversation' tenant_slug=tenant.slug pk=r.c.pk %}">{{ r.c.title }}</a></td>
+                <td class="muted">{{ r.who }}</td>
+                <td class="num">{{ r.c.questions }}</td>
+                <td class="bm-chips">
+                  {% if r.c.answered %}<span class="chip ok" title="Answered">{{ r.c.answered }} answered</span>{% endif %}
+                  {% if r.c.missed %}<span class="chip warn" title="Not found or declined">{{ r.c.missed }} not answered</span>{% endif %}
+                  {% if r.c.failed %}<span class="chip bad" title="Errors, limits or unavailable">{{ r.c.failed }} failed</span>{% endif %}
+                </td>
+                <td class="num muted"><time datetime="{{ r.c.updated_at|date:'c' }}">{{ r.c.updated_at|date:"j M, H:i" }}</time></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if pages > 1 %}
+        <nav class="bm-pager" aria-label="Pages">
+          {% if prev %}<a href="?q={{ q|urlencode }}&amp;channel={{ channel }}&amp;outcome={{ outcome }}&amp;page={{ prev }}">&larr; Newer</a>{% endif %}
+          <span>Page {{ page }} of {{ pages }}</span>
+          {% if next %}<a href="?q={{ q|urlencode }}&amp;channel={{ channel }}&amp;outcome={{ outcome }}&amp;page={{ next }}">Older &rarr;</a>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <p class="bm-empty">No conversations{% if q or channel or outcome %} match these filters{% else %} yet{% endif %}.</p>
+    {% endif %}
+    <p class="stat-note">Shows website-widget and Moodle conversations, and your own workspace chats. Other members' workspace chats stay private.</p>
+  </section>
+</main>
+{% endblock %}

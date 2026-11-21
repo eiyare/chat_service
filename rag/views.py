@@ -244,3 +244,85 @@ async def performance(request):
         "periods": [{"days": d, "label": label, "active": d == days} for d, label in metrics.PERIODS.items()],
         "period_label": metrics.PERIODS[days],
     })
+
+
+BRAIN_MAP_PAGE = 30
+_OUTCOME_FILTERS = {
+    "missed": ["not_found", "declined"],
+    "failed": ["error", "limited", "unavailable"],
+    "answered": ["answered", "faq", "small_talk"],
+}
+
+
+@require_GET
+@tenant_required(admin=True)
+async def brain_map(request):
+    """Conversations to drill into, newest first, with filters."""
+    from chat.models import Conversation
+
+    from . import brainmap
+
+    tenant = request.tenant
+    qs = brainmap.conversations(tenant, request.user)
+    channel = request.GET.get("channel", "")
+    if channel == "moodle":
+        qs = qs.filter(source=Conversation.Source.WIDGET, visitor_id__startswith="moodle-")
+    elif channel == "widget":
+        qs = qs.filter(source=Conversation.Source.WIDGET).exclude(visitor_id__startswith="moodle-")
+    elif channel == "app":
+        qs = qs.filter(source=Conversation.Source.APP)
+    outcome = request.GET.get("outcome", "")
+    if outcome in _OUTCOME_FILTERS:
+        qs = qs.filter(messages__role="assistant", messages__outcome__in=_OUTCOME_FILTERS[outcome]).distinct()
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(messages__content__icontains=q).distinct()
+    try:
+        page = max(int(request.GET.get("page", 1)), 1)
+    except ValueError:
+        page = 1
+    total = await qs.acount()
+    rows = [
+        {"c": c, "who": brainmap.who(c)}
+        async for c in brainmap.with_counts(qs).order_by("-updated_at")[
+            (page - 1) * BRAIN_MAP_PAGE: page * BRAIN_MAP_PAGE]
+    ]
+    pages = max((total + BRAIN_MAP_PAGE - 1) // BRAIN_MAP_PAGE, 1)
+    return render(request, "rag/brain_map.html", {
+        "tenant": tenant, "rows": rows, "total": total, "q": q, "channel": channel, "outcome": outcome,
+        "page": page, "pages": pages, "prev": page - 1 if page > 1 else None, "next": page + 1 if page < pages else None,
+        "channels": [("", "All channels"), ("widget", "Website widget"), ("moodle", "Moodle"),
+                     ("app", "Workspace chat (yours)")],
+        "outcomes": [("", "Any outcome"), ("answered", "Answered"), ("missed", "Not answered"),
+                     ("failed", "Errors and limits")],
+    })
+
+
+@require_GET
+@tenant_required(admin=True)
+async def brain_map_conversation(request, pk):
+    """One conversation: each question, its reply, and the steps that produced the reply."""
+    from chat.models import Message
+
+    from . import brainmap
+
+    tenant = request.tenant
+    try:
+        conversation = await brainmap.conversations(tenant, request.user).aget(pk=pk)
+    except Exception:  # DoesNotExist, or not theirs to see
+        raise Http404("Conversation not found")
+    exchanges, current = [], None
+    async for m in conversation.messages.all():
+        if m.role == Message.Role.USER:
+            current = {"question": m, "replies": []}
+            exchanges.append(current)
+            continue
+        if current is None:  # a reply without a question (e.g. history imported oddly)
+            current = {"question": None, "replies": []}
+            exchanges.append(current)
+        steps, recorded = brainmap.steps(m)
+        current["replies"].append({"m": m, "steps": steps, "recorded": recorded, "time": brainmap.fmt_ms(m.response_ms),
+                                   "ended": next((s for s in steps if s["status"] == "hit"), None)})
+    return render(request, "rag/brain_map_conversation.html", {
+        "tenant": tenant, "conversation": conversation, "who": brainmap.who(conversation), "exchanges": exchanges,
+    })

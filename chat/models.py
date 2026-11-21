@@ -85,6 +85,8 @@ class Message(models.Model):
     search_query = models.CharField(max_length=500, blank=True, help_text="Question as rewritten for search")
     error = models.CharField(max_length=500, blank=True,
                              help_text="Why the model call failed: kind, attempts and the provider's error")
+    trace = models.JSONField(default=list, blank=True,
+                             help_text="Brain map: each step that produced this reply (see chat/trace.py)")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

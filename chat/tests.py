@@ -316,6 +316,53 @@ class GroundedChatTests(TestCase):
                          "The model provider rejected the request [bad_request, 1 attempt: BadRequestError: x]")
         self.assertEqual(events[-2]["debug"]["error"], "bad_request: BadRequestError: x")
 
+    async def test_brain_map_records_and_shows_each_step(self):
+        await self._async(self.add_handbook)
+        await read_events(await self.send())
+        reply = await Message.objects.filter(role="assistant").alast()
+        keys = [s["key"] for s in reply.trace]
+        self.assertEqual(keys[:3], ["question", "small_talk", "context"])
+        for key in ("embed", "search", "route", "prompt", "model", "checks", "reply"):
+            self.assertIn(key, keys)
+        search = next(s for s in reply.trace if s["key"] == "search")
+        self.assertEqual(search["status"], "pass")
+        kept = [c for c in search["detail"]["candidates"] if c["kept"]]
+        self.assertEqual(kept[0]["document"], "handbook.md")
+        self.assertEqual(kept[0]["why"], "passed the key-word check")
+        prompt = next(s for s in reply.trace if s["key"] == "prompt")
+        self.assertIn("25 days of annual leave", prompt["detail"]["question_with_passages"])
+
+        convo = await Conversation.objects.alatest("pk")
+        listing = await self.async_client.get("/t/acme/admin/brain-map/")
+        self.assertContains(listing, convo.title)
+        page = await self.async_client.get(f"/t/acme/admin/brain-map/{convo.pk}/")
+        for text in ("Document search", "Prompt", "Model answer", "handbook.md", "25 days of annual leave"):
+            self.assertContains(page, text)
+        self.assertNotContains(page, "saved before brain maps were recorded")
+
+    async def test_brain_map_keeps_other_members_chats_private(self):
+        from django.contrib.auth import get_user_model
+
+        other = await get_user_model().objects.acreate_user("colleague", "c@example.com", "x")
+        theirs = await Conversation.objects.acreate(tenant=self.acme, title="Colleague's own chat", model="m",
+                                                    user=other)
+        visitor = await Conversation.objects.acreate(tenant=self.acme, title="Visitor chat", model="m",
+                                                     source=Conversation.Source.WIDGET,
+                                                     visitor_id="moodle-user-00000042-c7")
+        old = await Message.objects.acreate(conversation=visitor, role="assistant", content="Hi", outcome="answered",
+                                            model="m", passage_count=2, top_score=0.7, response_ms=1200)
+        listing = await self.async_client.get("/t/acme/admin/brain-map/")
+        self.assertContains(listing, "Visitor chat")
+        self.assertContains(listing, "Moodle user 42 · course 7")
+        self.assertNotContains(listing, "Colleague")
+        self.assertEqual((await self.async_client.get(f"/t/acme/admin/brain-map/{theirs.pk}/")).status_code, 404)
+        self.assertEqual((await self.async_client.get(f"/t/acme/admin/brain-map/{self.other_convo.pk}/")).status_code,
+                         404)  # another workspace's
+        page = await self.async_client.get(f"/t/acme/admin/brain-map/{visitor.pk}/")
+        self.assertContains(page, "saved before brain maps were recorded")  # outline from saved figures
+        self.assertContains(page, "2 passages found (best similarity 0.70)")
+        self.assertEqual(old.trace, [])
+
     async def test_empty_and_too_long_messages_rejected(self):
         self.assertEqual((await self.send(message="  ")).status_code, 400)
         with self.settings(CHAT_MAX_MESSAGE_CHARS=5):

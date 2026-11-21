@@ -54,7 +54,7 @@ widget. Users are Django users, managed in the Django admin (*Users*):
 - Other users get access through **memberships** (edit them on the user's
   page under *Workspace access*, or on a workspace's page under *Members*):
   - *Member*: the workspace chat.
-  - *Workspace admin*: the chat plus the Admin tabs (Documents, Performance,
+  - *Workspace admin*: the chat plus the Admin tabs (Documents, Performance, Brain map,
     Embed).
 - A workspace you're not a member of returns 404; members get 403 on Admin
   pages. The home page lists your workspaces (or opens your only one).
@@ -137,6 +137,24 @@ refused as a whole; new limits don't affect documents already stored. Uploads ar
 files take a moment. Duplicate files (same content) are rejected per workspace.
 Files are stored under `MEDIA_ROOT/rag/<slug>/` and are never served over HTTP.
 Scanned PDFs without a text layer fail with a clear message; they need OCR.
+
+## Brain map
+
+Admin → **Brain map** lists the workspace's conversations (filter by channel, outcome or text)
+and opens each one question by question. Under every reply is the path it took through the
+pipeline, with the time each step took:
+
+question received → small-talk check → context (earlier question and answer, Moodle course
+and page) → FAQ same-question match → question rewriting (what the model was given and what it
+returned) → embedding → FAQ close match → document search (thresholds, how many passages each
+route found, and every candidate with its similarity, whether it was kept and why) → FAQs as
+context → route (model, FAQ, not found, limit…) → prompt (system prompt and the question with
+its passages, exactly as sent) → model answer (tokens, attempts, reasoning, or the provider's
+error) → answer checks (passages cited) → reply.
+
+Each reply's steps are saved with it (`Message.trace`). Replies from before this was added show
+an outline rebuilt from their saved figures. Website-widget and Moodle conversations are listed,
+plus the admin's own workspace chats; other members' workspace chats stay private.
 
 ## Performance report
 
