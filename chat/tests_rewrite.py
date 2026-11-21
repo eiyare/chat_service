@@ -21,7 +21,7 @@ async def fake_embed(texts, purpose="document"):
     return [HOURS if "opening hours" in t.lower() else [0.0, 0.0, 1.0] for t in texts]
 
 
-async def fake_stream(model, messages, temperature=None, max_tokens=None):
+async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     CALLS.append(messages)
     if "search query" in messages[0]["content"]:  # the rewriting call
         yield {"type": "content", "text": "Friday closing time opening hours"}

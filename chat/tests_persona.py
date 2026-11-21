@@ -59,7 +59,7 @@ async def fake_embed(texts, purpose="document"):
     return [LEAVE if ("leave" in t.lower() or "vacation" in t.lower()) else [0.0, 0.0, 1.0] for t in texts]
 
 
-async def fake_stream(model, messages, temperature=None, max_tokens=None):
+async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     STREAMS.append(messages)
     yield {"type": "content", "text": "25 days [1]."}
     yield {"type": "done", "prompt_tokens": 10, "completion_tokens": 3, "duration_ms": 5}

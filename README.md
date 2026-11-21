@@ -416,6 +416,26 @@ Models and providers can be managed in two places:
   then models `gpu_box/<name>`. `LLM_MODEL_PARAMS` (JSON) sets per-model options.
 - Common: `LLM_TIMEOUT`, `LLM_NUM_RETRIES`, `LLM_TEMPERATURE`.
 
+### Provider errors and debugging
+
+When a model call fails with a temporary error (busy/overloaded, rate limited, timed out,
+unreachable) before any of the reply has been shown, it is tried again: Django admin →
+Platform settings → Answering → **Retries after a provider error** (default 2, waiting about
+1, 2, 4 … seconds). Users see a short message for the kind of failure. Every failed reply is
+saved with its cause: Django admin → Chat → **Messages**, filter *Outcome: Error*; the
+**Error** column gives the kind, the number of attempts and the provider's own error. Each
+failure is also logged as `WARNING llm.client: LLM call to <model> failed (<kind>, attempt N): …`.
+
+With `DJANGO_DEBUG=1`:
+
+- error messages shown in the chat and widget include the kind, attempts and provider error;
+- every reply carries a `debug` record (outcome, search queries, passages found and best score,
+  FAQ match, Moodle course and page, history length, attempts), printed to the browser console
+  as `[saaschat] reply details` and logged by `chat.views`;
+- our apps log at DEBUG level, including provider tracebacks (`APP_LOG_LEVEL` overrides).
+
+Never leave `DJANGO_DEBUG=1` on a public server: it also shows these details to visitors.
+
 For each call the adapter merges: common settings, then the provider's entry,
 then the model's `LLM_MODEL_PARAMS`. `manage.py check` (also run by
 `runserver`) reports models without a recognisable provider and providers

@@ -219,6 +219,10 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "simple"}},
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
     "loggers": {
+        # Our apps: with DEBUG on, step-by-step details (search, retries, provider errors with
+        # tracebacks, each reply's debug record); APP_LOG_LEVEL overrides.
+        **{app: {"level": env_str("APP_LOG_LEVEL", "DEBUG" if DEBUG else LOG_LEVEL)}
+           for app in ("chat", "rag", "llm", "widget", "siteconfig", "tenants", "portal")},
         "httpx": {"level": "WARNING"},
         "httpcore": {"level": "WARNING"},
         # LiteLLM logs every call at INFO through its own handler; keep only problems.
@@ -258,7 +262,11 @@ LLM_EMBED_MODEL = env_str("LLM_EMBED_MODEL", "")
 
 # Applied to every call.
 LLM_TIMEOUT = env_float("LLM_TIMEOUT", 300.0)  # seconds
-LLM_NUM_RETRIES = env_int("LLM_NUM_RETRIES", 0)
+LLM_NUM_RETRIES = env_int("LLM_NUM_RETRIES", 0)  # LiteLLM's own retries of the first request
+# Our retries of temporary provider failures (timeout, overloaded, rate limited, unreachable)
+# before anything has been streamed. Chat replies use the admin setting "Retries after a
+# provider error" (seeded from this); embeddings and other calls use this value.
+LLM_RETRIES = env_int("LLM_RETRIES", 2)
 # Default sampling temperature; unset uses the model's default.
 LLM_TEMPERATURE = env_float("LLM_TEMPERATURE", None)
 

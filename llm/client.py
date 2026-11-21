@@ -1,8 +1,10 @@
 """LiteLLM adapter. Which models exist and how each provider is reached comes
 from the effective configuration (llm/config.py): Django settings / environment
 variables, overridden by what staff configure in the Django admin."""
+import asyncio
 import logging
 import os
+import random
 import time
 from typing import AsyncIterator
 
@@ -22,7 +24,48 @@ logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
-    """A model call failed (unreachable provider, unknown model, timeout, ...)."""
+    """A model call failed (unreachable provider, unknown model, timeout, ...).
+
+    str(error) is the short message for users. ``kind`` names the failure (see KINDS),
+    ``detail`` is the provider's own error for logs, admin and DEBUG, ``retryable`` says
+    whether trying again may work, and ``attempts`` how many calls were made.
+    """
+
+    def __init__(self, message: str, kind: str = "other", detail: str = "", retryable: bool = False):
+        super().__init__(message)
+        self.kind, self.detail, self.retryable = kind, detail, retryable
+        self.attempts = 1
+        self.partial = False  # part of the reply had already been streamed
+
+    def public(self) -> str:
+        """The message for users; with DEBUG on, followed by the provider's error."""
+        message = str(self)
+        if settings.DEBUG and self.detail:
+            message += f" [{self.kind}, {self.attempts} attempt{'s' if self.attempts != 1 else ''}: {self.detail}]"
+        return message
+
+    def summary(self) -> str:
+        """One line for the message's error field in the admin."""
+        tries = f" after {self.attempts} attempts" if self.attempts > 1 else ""
+        cut = " (reply cut off)" if self.partial else ""
+        return f"{self.kind}{tries}{cut}: {self.detail or self}"[:500]
+
+
+# kind -> (message for users, worth retrying)
+KINDS = {
+    "timeout": ("The model provider timed out. Please try again.", True),
+    "unreachable": ("Cannot reach the model provider. Please try again shortly.", True),
+    "rate_limited": ("The assistant is busy right now. Please try again in a moment.", True),
+    "unavailable": ("The assistant is busy right now. Please try again in a moment.", True),
+    "not_found": ("Model not found: {model}", False),
+    "auth": ("The model provider rejected the credentials", False),
+    "too_long": ("The conversation is too long for this model. Please start a new chat.", False),
+    "content_filter": ("The model provider declined to answer this question.", False),
+    "bad_request": ("The model provider rejected the request", False),
+    "other": ("The model provider returned an error", False),
+}
+# Seconds before the first retry; doubled for each further one, with some jitter.
+RETRY_DELAY = 1.0
 
 
 def provider_of(model: str) -> str:
@@ -61,26 +104,59 @@ def resolve(model: str, config: Config) -> tuple[str, dict]:
     return model_for_litellm, kwargs
 
 
+def _kind(exc: Exception) -> str:
+    e = litellm.exceptions
+    if isinstance(exc, (e.Timeout, asyncio.TimeoutError)):
+        return "timeout"
+    if isinstance(exc, e.APIConnectionError):
+        return "unreachable"
+    if isinstance(exc, e.NotFoundError):
+        return "not_found"
+    if isinstance(exc, (e.AuthenticationError, e.PermissionDeniedError)):
+        return "auth"
+    if isinstance(exc, e.RateLimitError):
+        return "rate_limited"
+    if isinstance(exc, e.ContextWindowExceededError):  # before BadRequestError: it is one
+        return "too_long"
+    if isinstance(exc, e.ContentPolicyViolationError):
+        return "content_filter"
+    if isinstance(exc, (e.InternalServerError, e.ServiceUnavailableError, e.BadGatewayError)):
+        return "unavailable"
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and (status >= 500 or status == 529):  # 529: Anthropic "overloaded"
+        return "unavailable"
+    if "overloaded" in str(exc).lower():
+        return "unavailable"
+    if isinstance(exc, (e.BadRequestError, e.UnprocessableEntityError)):
+        return "bad_request"
+    return "other"
+
+
 def _error(exc: Exception, model: str) -> LLMError:
     """Turn a LiteLLM/provider exception into a short, user-presentable error."""
-    logger.warning("LLM call to %s failed: %s", model, exc)
-    if isinstance(exc, litellm.exceptions.Timeout):
-        return LLMError("The model provider timed out")
-    if isinstance(exc, litellm.exceptions.APIConnectionError):
-        return LLMError("Cannot reach the model provider")
-    if isinstance(exc, litellm.exceptions.NotFoundError):
-        return LLMError(f"Model not found: {model}")
-    if isinstance(exc, (litellm.exceptions.AuthenticationError, litellm.exceptions.PermissionDeniedError)):
-        return LLMError("The model provider rejected the credentials")
-    if isinstance(exc, litellm.exceptions.RateLimitError):
-        return LLMError("The model provider is rate limiting requests; try again shortly")
-    if isinstance(exc, litellm.exceptions.ContextWindowExceededError):
-        return LLMError("The conversation is too long for this model")
-    return LLMError("The model provider returned an error")
+    kind = _kind(exc)
+    message, retryable = KINDS[kind]
+    detail = " ".join(f"{type(exc).__name__}: {exc}".split())[:1000]
+    logger.debug("LLM call to %s failed", model, exc_info=exc)
+    return LLMError(message.format(model=model), kind, detail, retryable)
+
+
+async def _pause(attempt: int, error: LLMError, model: str) -> None:
+    delay = RETRY_DELAY * 2 ** (attempt - 1) * random.uniform(0.75, 1.25)
+    logger.info("LLM call to %s failed (%s), retrying in %.1fs: %s", model, error.kind, delay, error.detail)
+    await asyncio.sleep(delay)
+
+
+def _give_up(error: LLMError, model: str, attempt: int) -> LLMError:
+    error.attempts = attempt
+    logger.warning("LLM call to %s failed (%s, attempt %d%s): %s", model, error.kind, attempt,
+                   ", reply cut off" if error.partial else "", error.detail or error)
+    return error
 
 
 async def stream_chat(
-    model: str, messages: list[dict], temperature: float | None = None, max_tokens: int | None = None
+    model: str, messages: list[dict], temperature: float | None = None, max_tokens: int | None = None,
+    retries: int | None = None,
 ) -> AsyncIterator[dict]:
     """Stream a chat completion.
 
@@ -88,10 +164,36 @@ async def stream_chat(
       {"type": "thinking", "text": str}   reasoning tokens (models that expose them)
       {"type": "content",  "text": str}   answer tokens
       {"type": "done", "prompt_tokens": int|None, "completion_tokens": int|None,
-       "duration_ms": int}
+       "duration_ms": int, "attempts": int}
     Token counts are None when the provider doesn't report usage.
-    Raises LLMError on failure.
+
+    A temporary failure (timeout, overloaded, rate limited, ...) before anything has been
+    streamed is retried up to ``retries`` times (default LLM_RETRIES; the chat passes the
+    admin setting). Once text has been streamed a failure can't be retried: the LLMError
+    then has ``partial`` set. Raises LLMError on failure.
     """
+    retries = settings.LLM_RETRIES if retries is None else max(int(retries), 0)
+    attempt = 0
+    while True:
+        attempt += 1
+        streamed = False
+        try:
+            async for event in _stream_once(model, messages, temperature, max_tokens):
+                if event["type"] == "done":
+                    event["attempts"] = attempt
+                else:
+                    streamed = True
+                yield event
+            return
+        except LLMError as error:
+            error.partial = streamed
+            if streamed or not error.retryable or attempt > retries:
+                raise _give_up(error, model, attempt)
+            await _pause(attempt, error, model)
+
+
+async def _stream_once(model, messages, temperature, max_tokens):
+    """One streamed completion (see stream_chat)."""
     litellm_model, params = resolve(model, await aget_config())
     if temperature is None:
         temperature = settings.LLM_TEMPERATURE
@@ -156,10 +258,17 @@ async def embed(texts: list[str], purpose: str = "document", config: Config | No
         raise LLMError("No embedding model configured (set one in the admin or LLM_EMBED_MODEL)")
     litellm_model, params = resolve(model, config)
     params = {**params, **(config.embed_query_params if purpose == "query" else config.embed_document_params)}
-    try:
-        response = await litellm.aembedding(model=litellm_model, input=texts, **params)
-    except Exception as exc:
-        raise _error(exc, model) from exc
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = await litellm.aembedding(model=litellm_model, input=texts, **params)
+            break
+        except Exception as exc:
+            error = _error(exc, model)
+            if not error.retryable or attempt > settings.LLM_RETRIES:
+                raise _give_up(error, model, attempt) from exc
+            await _pause(attempt, error, model)
     data = sorted(response.data, key=lambda d: d["index"])
     if len(data) != len(texts):
         raise LLMError(f"Embedding model returned {len(data)} vectors for {len(texts)} inputs")

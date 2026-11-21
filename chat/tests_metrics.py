@@ -107,12 +107,12 @@ async def fake_embed(texts, purpose="document"):
     return [LEAVE if "leave" in t.lower() else OFF for t in texts]
 
 
-async def answering_stream(model, messages, temperature=None, max_tokens=None):
+async def answering_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     yield {"type": "content", "text": "25 days [1]."}
     yield {"type": "done", "prompt_tokens": 100, "completion_tokens": 6, "duration_ms": 10}
 
 
-async def declining_stream(model, messages, temperature=None, max_tokens=None):
+async def declining_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     yield {"type": "content", "text": "NOT IN DOCS"}
     yield {"type": "done", "prompt_tokens": 100, "completion_tokens": 6, "duration_ms": 10}
 

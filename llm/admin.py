@@ -230,7 +230,8 @@ class LLMModelAdmin(admin.ModelAdmin):
             try:
                 detail = async_to_sync(_probe)(obj)
             except client.LLMError as exc:
-                self.message_user(request, f"Test of {obj.identifier}: failed - {exc}", messages.ERROR)
+                detail = f" ({exc.detail})" if exc.detail else ""  # staff only: show the provider's error
+                self.message_user(request, f"Test of {obj.identifier}: failed - {exc}{detail}", messages.ERROR)
             else:
                 self.message_user(request, f"Test of {obj.identifier}: OK - {detail}", messages.SUCCESS)
 

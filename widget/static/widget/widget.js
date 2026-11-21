@@ -119,6 +119,7 @@
         content = evt.text;
         view.bubble.innerHTML = ChatMarkdown.render(content);
       } else if (evt.type === "done") faq = !!evt.faq;
+      else if (evt.type === "debug") console.debug("[saaschat] reply details", evt.debug);  // DEBUG on only
       else if (evt.type === "error") throw new Error(evt.error);
     }
 

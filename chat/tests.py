@@ -32,13 +32,13 @@ async def fake_embed(texts, purpose="document"):
     return [vector_for(t) for t in texts]
 
 
-async def fake_stream(model, messages, temperature=None, max_tokens=None):
+async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     STREAM_CALLS.append({"model": model, "messages": messages, "temperature": temperature})
     yield {"type": "content", "text": "You get 25 days [1]."}
     yield {"type": "done", "prompt_tokens": 120, "completion_tokens": 7, "duration_ms": 100}
 
 
-async def failing_stream(model, messages, temperature=None, max_tokens=None):
+async def failing_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     yield {"type": "content", "text": "partial"}
     raise llm.LLMError("Cannot reach the model provider")
 
@@ -273,6 +273,48 @@ class GroundedChatTests(TestCase):
         self.assertEqual(events[-1], {"type": "error", "error": "Cannot reach the model provider"})
         reply = await Message.objects.filter(role="assistant").alast()
         self.assertEqual(reply.content, "partial")
+
+    async def test_failure_before_any_text_is_recorded_with_its_cause(self):
+        await self._async(self.add_handbook)
+
+        async def overloaded(model, messages, **kwargs):
+            raise llm.LLMError("The assistant is busy right now.", "unavailable", "InternalServerError: Overloaded")
+            yield  # an async generator
+
+        with mock.patch("llm.stream_chat", overloaded):
+            events = await read_events(await self.send())
+        self.assertEqual(events[-1], {"type": "error", "error": "The assistant is busy right now."})
+        self.assertNotIn("debug", [e["type"] for e in events])  # DEBUG off: no details
+        reply = await Message.objects.filter(role="assistant").alast()
+        self.assertEqual((reply.content, reply.outcome), ("", Message.Outcome.ERROR))
+        self.assertEqual(reply.error, "unavailable: InternalServerError: Overloaded")
+        # Not shown in the conversation, nor sent to the model as history.
+        convo = await Conversation.objects.alatest("pk")
+        self.assertEqual([m.role async for m in convo.messages.visible()], ["user"])
+        STREAM_CALLS.clear()
+        await read_events(await self.send(conversation_id=convo.pk))
+        self.assertEqual([m["role"] for m in STREAM_CALLS[-1]["messages"][1:-1]], ["user"])
+
+    async def test_debug_shows_reply_details_and_provider_errors(self):
+        await self._async(self.add_handbook)
+        with self.settings(DEBUG=True):
+            events = await read_events(await self.send())
+            debug = next(e["debug"] for e in events if e["type"] == "debug")
+            self.assertEqual(debug["outcome"], Message.Outcome.ANSWERED)
+            self.assertEqual(debug["passages"], 1)
+            self.assertIn("queries", debug)
+
+            async def rejected(model, messages, **kwargs):
+                error = llm.LLMError("The model provider rejected the request", "bad_request", "BadRequestError: x")
+                error.attempts = 1
+                raise error
+                yield
+
+            with mock.patch("llm.stream_chat", rejected):
+                events = await read_events(await self.send())
+        self.assertEqual(events[-1]["error"],
+                         "The model provider rejected the request [bad_request, 1 attempt: BadRequestError: x]")
+        self.assertEqual(events[-2]["debug"]["error"], "bad_request: BadRequestError: x")
 
     async def test_empty_and_too_long_messages_rejected(self):
         self.assertEqual((await self.send(message="  ")).status_code, 400)

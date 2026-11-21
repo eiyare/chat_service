@@ -53,7 +53,7 @@ async def fake_embed(texts, purpose="document"):
 STREAMS = []
 
 
-async def fake_stream(model, messages, temperature=None, max_tokens=None):
+async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     STREAMS.append(messages)
     yield {"type": "content", "text": "I no see dat one inside dis workspace documents."}
     yield {"type": "done", "prompt_tokens": 10, "completion_tokens": 9, "duration_ms": 5}

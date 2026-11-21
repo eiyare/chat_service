@@ -399,7 +399,7 @@ class MoodleCourseTests(TestCase):
     def test_this_module_means_the_page_the_student_is_viewing(self):
         calls = []
 
-        async def fake_stream(model, messages, temperature=None, max_tokens=None):
+        async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
             calls.append(messages)
             yield {"type": "content", "text": "search words" if "search query" in messages[0]["content"] else "OK"}
             yield {"type": "done", "prompt_tokens": 1, "completion_tokens": 1}

@@ -147,7 +147,7 @@ async def history(request, key):
             conversation = await conversations.aget(pk=body.get("conversation_id"))
     except (Conversation.DoesNotExist, ValueError, TypeError):
         return _error("Conversation not found", 404)
-    msgs = [m.as_dict() async for m in conversation.messages.all()]
+    msgs = [m.as_dict() async for m in conversation.messages.visible()]
     return JsonResponse({"conversation_id": conversation.pk, "messages": msgs})
 
 

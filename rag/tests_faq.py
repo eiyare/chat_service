@@ -36,7 +36,7 @@ async def fake_embed(texts, purpose="document"):
 STREAM_CALLS = []
 
 
-async def fake_stream(model, messages, temperature=None, max_tokens=None):
+async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     STREAM_CALLS.append(messages)
     yield {"type": "content", "text": "From the model."}
     yield {"type": "done", "prompt_tokens": 50, "completion_tokens": 4, "duration_ms": 5}

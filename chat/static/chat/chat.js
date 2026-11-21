@@ -312,6 +312,7 @@
           view.meta.textContent = evt.faq ? faqText(evt.stats) : statsText(evt.grounded ? model : "", evt.stats);
           break;
         case "error": showError(evt.error); break;
+        case "debug": console.debug("[saaschat] reply details", evt.debug); break;  // DEBUG on only
       }
     }
 

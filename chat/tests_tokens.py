@@ -33,7 +33,7 @@ async def fake_embed(texts, purpose="document"):
     return [_vec(t) for t in texts]
 
 
-async def fake_stream(model, messages, temperature=None, max_tokens=None):
+async def fake_stream(model, messages, temperature=None, max_tokens=None, **kwargs):
     CALLS.append({"max_tokens": max_tokens})
     yield {"type": "content", "text": "25 days."}
     yield {"type": "done", "prompt_tokens": 600, "completion_tokens": 50, "duration_ms": 5}

@@ -176,6 +176,8 @@ class StreamChatTests(TestCase):
             (litellm.exceptions.NotFoundError("nope", "openai/chat-a", "openai"), "Model not found"),
             (litellm.exceptions.Timeout("slow", "openai/chat-a", "openai"), "timed out"),
             (RuntimeError("weird"), "returned an error"),
+            (litellm.exceptions.InternalServerError("Overloaded", "anthropic", "openai/chat-a"), "busy right now"),
+            (litellm.exceptions.BadRequestError("bad", "openai/chat-a", "openai"), "rejected the request"),
         ]
         for exc, message in cases:
             async def acompletion(**kwargs):
@@ -183,7 +185,92 @@ class StreamChatTests(TestCase):
 
             with self.subTest(exc=type(exc).__name__), mock.patch("litellm.acompletion", acompletion):
                 with self.assertRaisesMessage(llm.LLMError, message):
-                    await self.collect()
+                    await self.collect(retries=0)
+
+    def test_error_kinds(self):
+        from .client import _error
+
+        e = litellm.exceptions
+        cases = [
+            (e.Timeout("slow", "m", "p"), "timeout", True),
+            (e.RateLimitError("slow down", "p", "m"), "rate_limited", True),
+            (e.ServiceUnavailableError("down", "p", "m"), "unavailable", True),
+            (e.InternalServerError("Overloaded", "p", "m"), "unavailable", True),
+            (e.ContextWindowExceededError("long", "m", "p"), "too_long", False),
+            (e.ContentPolicyViolationError("no", "m", "p"), "content_filter", False),
+            (e.AuthenticationError("key", "p", "m"), "auth", False),
+            (RuntimeError("Anthropic overloaded_error"), "unavailable", True),
+            (RuntimeError("weird"), "other", False),
+        ]
+        for exc, kind, retryable in cases:
+            with self.subTest(kind):
+                error = _error(exc, "m")
+                self.assertEqual((error.kind, error.retryable), (kind, retryable))
+                self.assertIn(type(exc).__name__, error.detail)
+
+    def test_provider_error_shown_only_with_debug(self):
+        error = llm.LLMError("Busy", "unavailable", "InternalServerError: Overloaded")
+        error.attempts = 3
+        self.assertEqual(error.public(), "Busy")
+        with self.settings(DEBUG=True):
+            self.assertEqual(error.public(), "Busy [unavailable, 3 attempts: InternalServerError: Overloaded]")
+        self.assertEqual(error.summary(), "unavailable after 3 attempts: InternalServerError: Overloaded")
+
+    def failing_then(self, failures, chunks):
+        """acompletion that raises each of ``failures`` in turn, then streams ``chunks``."""
+        calls = []
+
+        async def acompletion(**kwargs):
+            calls.append(kwargs)
+            if len(calls) <= len(failures):
+                raise failures[len(calls) - 1]
+
+            async def gen():
+                for c in chunks:
+                    yield c
+            return gen()
+        return acompletion, calls
+
+    @mock.patch("llm.client.RETRY_DELAY", 0)
+    async def test_temporary_failures_are_retried(self):
+        busy = litellm.exceptions.InternalServerError("Overloaded", "anthropic", "openai/chat-a")
+        acompletion, calls = self.failing_then([busy, busy], [chunk(content="Hi")])
+        with mock.patch("litellm.acompletion", acompletion):
+            events = await self.collect(retries=2)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual((events[0]["text"], events[-1]["attempts"]), ("Hi", 3))
+
+        acompletion, calls = self.failing_then([busy] * 3, [chunk(content="Hi")])
+        with mock.patch("litellm.acompletion", acompletion):
+            with self.assertRaises(llm.LLMError) as caught:
+                await self.collect(retries=2)
+        self.assertEqual((len(calls), caught.exception.attempts, caught.exception.kind), (3, 3, "unavailable"))
+
+    @mock.patch("llm.client.RETRY_DELAY", 0)
+    async def test_permanent_failures_and_cut_off_replies_are_not_retried(self):
+        denied = litellm.exceptions.AuthenticationError("bad key", "openai", "openai/chat-a")
+        acompletion, calls = self.failing_then([denied], [])
+        with mock.patch("litellm.acompletion", acompletion):
+            with self.assertRaises(llm.LLMError):
+                await self.collect(retries=2)
+        self.assertEqual(len(calls), 1)
+
+        calls = []
+
+        async def cut_off(**kwargs):
+            calls.append(kwargs)
+
+            async def gen():
+                yield chunk(content="Hal")
+                raise litellm.exceptions.InternalServerError("Overloaded", "anthropic", "openai/chat-a")
+            return gen()
+
+        events = []
+        with mock.patch("litellm.acompletion", cut_off):
+            with self.assertRaises(llm.LLMError) as caught:
+                async for e in llm.stream_chat("openai/chat-a", [], retries=2):
+                    events.append(e)
+        self.assertEqual((len(calls), events, caught.exception.partial), (1, [{"type": "content", "text": "Hal"}], True))
 
 
 @override_settings(**LLM_SETTINGS)

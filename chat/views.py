@@ -52,7 +52,7 @@ async def _render_chat(request, conversation=None):
     tenant = request.tenant
     messages = []
     if conversation is not None:
-        messages = [m.as_dict() async for m in conversation.messages.all()]
+        messages = [m.as_dict() async for m in conversation.messages.visible()]
     llm_config = await llm.aget_config()
     config = {
         "conversationId": conversation.pk if conversation else None,
@@ -232,7 +232,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             # and replies to an offer ("yes") the assistant's answer too.
             previous_text = persona.search_text(previous.content, name)
             queries.append(f"{previous_text}\n{search}")
-            answer = await conversation.messages.filter(role=Message.Role.ASSISTANT, id__gt=previous.id).alast()
+            answer = await (conversation.messages.filter(role=Message.Role.ASSISTANT, id__gt=previous.id)
+                            .exclude(content="").alast())
             previous_answer = _CITATION.sub("", answer.content) if answer else None
     place = await retrieval.moodle_place(tenant, course, activity)
     kb_status = await retrieval.kb_status(tenant, course)
@@ -273,7 +274,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
                     passages = retrieval.Results(faq_context + list(passages))
                     passages.best_score = best
         except llm.LLMError as exc:
-            return _json_error(f"Document search failed: {exc}", status=503)
+            return _json_error(f"Document search failed: {exc.public()}", status=503)
         retrieval_ms = int((time.monotonic() - search_started) * 1000)
 
     # --- Persist the question ---
@@ -287,7 +288,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             user=user if source == Conversation.Source.APP else None,
         )
 
-    recent = conversation.messages.order_by("-created_at", "-id")[: max(cfg.history_limit - 1, 0)]
+    # Failed replies are recorded with no content; they aren't part of the conversation.
+    recent = conversation.messages.exclude(content="").order_by("-created_at", "-id")[: max(cfg.history_limit - 1, 0)]
     history = [
         {
             "role": m.role,
@@ -310,8 +312,9 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         passage_count = len(passages)
     url = reverse("chat:conversation", kwargs={"tenant_slug": tenant.slug, "pk": conversation.pk})
 
-    async def save_reply(content, thinking, reply_model, outcome, prompt_tokens=None, completion_tokens=None):
-        if not content and not thinking:
+    async def save_reply(content, thinking, reply_model, outcome, prompt_tokens=None, completion_tokens=None,
+                         error=None):
+        if not content and not thinking and error is None:
             return None
         if outcome == Message.Outcome.ANSWERED and content.strip() in (
             conf.fill(cfg.no_answer_message, cfg).strip(), no_answer.strip()
@@ -326,6 +329,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             response_ms=int((time.monotonic() - started) * 1000), search_query=search_query[:500],
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             outcome=outcome, retrieval_ms=retrieval_ms, passage_count=passage_count, top_score=top_score,
+            error=error.summary() if error else "",
         )
         await Conversation.objects.filter(pk=conversation.pk).aupdate(updated_at=timezone.now())
         logger.info(
@@ -338,6 +342,23 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
 
     meta = {"type": "meta", "conversation_id": conversation.pk, "title": conversation.title, "url": url}
 
+    def debug_event(outcome, attempts=None, error=None):
+        """With DEBUG on: how the reply was produced, for the browser console and the log."""
+        info = {
+            "outcome": outcome, "model": model, "small_talk": small_talk, "language": lang,
+            "search_query": search_query, "queries": queries, "knowledge_base": kb_status,
+            "best_score": passages.best_score if not faq_hit else None, "passages": passage_count,
+            "faq": {"question": faq_hit.faq.question, "score": round(faq_hit.score, 3)} if faq_hit else None,
+            "retrieval_ms": retrieval_ms, "history_messages": len(history), "attempts": attempts,
+            "error": error.summary() if error else None,
+        }
+        if course is not None:
+            info["moodle"] = {"course": course, "activity": activity, "course_name": place.course,
+                              "page": place.page}
+        logger.debug("chat reply details tenant=%s conversation=%s %s", tenant.slug, conversation.pk,
+                     json.dumps(info, default=str))
+        return _ndjson({"type": "debug", "debug": info})
+
     async def fixed_reply(message, outcome):
         # An FAQ answer, or nothing relevant found: reply without consulting the model.
         yield _ndjson(meta)
@@ -346,6 +367,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         msg = await save_reply(message, "", "", outcome)
         if outcome == Message.Outcome.FAQ:
             await faq.record_hit(faq_hit.faq)
+        if settings.DEBUG:
+            yield debug_event(outcome)
         yield _ndjson({"type": "done", "message_id": msg.pk, "grounded": False,
                        "faq": outcome == Message.Outcome.FAQ, "stats": msg.stats()})
 
@@ -362,7 +385,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         yield _ndjson({"type": "sources", "sources": sources})
         try:
             async for event in llm.stream_chat(model, messages, temperature=cfg.temperature,
-                                               max_tokens=token_policy.max_output_tokens):
+                                               max_tokens=token_policy.max_output_tokens,
+                                               retries=cfg.provider_retries):
                 if event["type"] == "content":
                     content.append(event["text"])
                 elif event["type"] == "thinking":
@@ -380,14 +404,18 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
                     event["message_id"] = msg.pk if msg else None
                     event["grounded"] = True
                     event["stats"] = msg.stats() if msg else None
+                    if settings.DEBUG:
+                        yield debug_event(msg.outcome if msg else Message.Outcome.ANSWERED, event.get("attempts"))
                 yield _ndjson(event)
         except asyncio.CancelledError:
             # Client disconnected (e.g. pressed Stop): keep what was generated so far.
             await save_reply("".join(content), "".join(thinking), model, Message.Outcome.STOPPED)
             raise
         except llm.LLMError as exc:
-            await save_reply("".join(content), "".join(thinking), model, Message.Outcome.ERROR)
-            yield _ndjson({"type": "error", "error": str(exc)})
+            await save_reply("".join(content), "".join(thinking), model, Message.Outcome.ERROR, error=exc)
+            if settings.DEBUG:
+                yield debug_event(Message.Outcome.ERROR, exc.attempts, exc)
+            yield _ndjson({"type": "error", "error": exc.public()})
 
     unavailable = {
         retrieval.KB.NO_DOCUMENTS: conf.fill(cfg.empty_kb_message, cfg),

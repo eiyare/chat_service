@@ -36,7 +36,16 @@ class Conversation(models.Model):
         )
 
 
+class MessageQuerySet(models.QuerySet):
+    def visible(self):
+        """Messages shown in a conversation and sent to the model as history: not the empty
+        assistant replies recorded for failed calls (those are kept for their ``error``)."""
+        return self.exclude(content="", thinking="")
+
+
 class Message(models.Model):
+    objects = MessageQuerySet.as_manager()
+
     class Role(models.TextChoices):
         USER = "user", "User"
         ASSISTANT = "assistant", "Assistant"
@@ -74,6 +83,8 @@ class Message(models.Model):
     top_score = models.FloatField(null=True, blank=True, help_text="Similarity of the best passage")
     passage_count = models.PositiveSmallIntegerField(null=True, blank=True)
     search_query = models.CharField(max_length=500, blank=True, help_text="Question as rewritten for search")
+    error = models.CharField(max_length=500, blank=True,
+                             help_text="Why the model call failed: kind, attempts and the provider's error")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

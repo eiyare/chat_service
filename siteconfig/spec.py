@@ -90,6 +90,10 @@ SPECS = [
     Spec("rewrite_queries", BOOL, ANSWERING, "Rewrite questions for search", _s("RAG_REWRITE_QUERIES"), True,
          "Before searching, the chat model turns the question into a plain-English search query (handles Pidgin, "
          "paraphrases like \"what time do you close\", and follow-ups). One small extra model call per question."),
+    Spec("provider_retries", INT, ANSWERING, "Retries after a provider error", _s("LLM_RETRIES"),
+         help="When the model provider fails with a temporary error (busy/overloaded, rate limited, timed out, "
+              "unreachable) before any of the reply has been shown, try again this many times, waiting about 1, "
+              "2, 4 ... seconds in between. 0 shows the error straight away.", min=0, max=5),
     # --- Search and FAQs (global) -------------------------------------------------------------
     Spec("rewrite_prompt", TEXT, SEARCH, "Question rewriting instructions", _s("RAG_REWRITE_PROMPT")),
     Spec("confident_factor", FLOAT, SEARCH, "Strong match factor", _s("RAG_CONFIDENT_FACTOR"),
