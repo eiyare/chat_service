@@ -1,7 +1,7 @@
 """Enquiries from the public site ("Book a demo", "Contact us"), emailed to the helpdesk.
 
 The address is the admin setting "Helpdesk email" (Platform settings > Contact); mail goes out
-through the SMTP settings in .env (EMAIL_HOST ...). The enquiry is saved first, so it is
+through the SMTP server set in Django admin (Platform settings > Email (SMTP)). The enquiry is saved first, so it is
 never lost: if the email can't be sent, staff still find it under Portal > Enquiries.
 """
 import logging
@@ -11,6 +11,7 @@ from django.core.mail import EmailMessage
 from django.urls import reverse
 
 from siteconfig import conf
+from siteconfig.mail import sender
 
 from .models import Enquiry
 
@@ -57,7 +58,7 @@ def deliver(enquiry: Enquiry, request=None) -> None:
     message = EmailMessage(
         subject=f"[{settings.SITE_NAME}] {enquiry.get_kind_display()}: {who}",
         body=email_body(enquiry, admin_url),
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        from_email=sender(),
         to=[to],
         reply_to=[enquiry.email],
     )

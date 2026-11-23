@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from django.conf import settings
 from django.db import DatabaseError
 
-from .spec import BOOL, GROUNDING, LINE, PERIOD, SPECS, TEXT, WORKSPACE_SPECS
+from .spec import BOOL, CHOICE, GROUNDING, LINE, PERIOD, SECRET, SPECS, TEXT, WORKSPACE_SPECS
 
 _lock = threading.Lock()
 _platform = None        # (expires, values dict)
@@ -37,7 +37,12 @@ def _row_values(row, specs, overrides: bool) -> dict:
     values = {}
     for s in specs:
         value = getattr(row, s.name)
-        if overrides and (value is None or (s.kind in (TEXT, LINE, PERIOD, GROUNDING) and value == "")):
+        if s.kind == SECRET:
+            from llm import crypto
+
+            value = crypto.decrypt(value or "")
+        if overrides and (value is None or (s.kind in (TEXT, LINE, PERIOD, GROUNDING, CHOICE, SECRET)
+                                            and value == "")):
             continue  # blank override: inherit
         values[s.name] = value
     return values

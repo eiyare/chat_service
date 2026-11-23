@@ -149,18 +149,20 @@ platform setting **Instructions: Moodle student tools** (per-workspace override 
 
 ## Email and enquiries
 
-**SMTP** (`.env`): `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`
-(STARTTLS, port 587) or `EMAIL_USE_SSL` (port 465), `EMAIL_TIMEOUT` and `DEFAULT_FROM_EMAIL` (most
-services only accept a verified sender). Without `EMAIL_HOST`, emails are printed to the console.
-Check the setup with `python manage.py sendtestemail you@example.com`.
+**SMTP** is set in Django admin → Platform settings → **Email (SMTP)**: server, port, encryption
+(STARTTLS / SSL/TLS), username, password (stored encrypted, never shown again; leave blank to keep
+it), sender ("Send emails from"; most providers only accept a verified domain) and timeout. Changes
+apply without a restart. **Send a test email** at the top of that page sends one to the helpdesk
+email and shows the mail server's answer if it fails. With no SMTP server set, emails are written to
+the server log. (`python manage.py sendtestemail you@example.com` uses the same settings.)
 
 **Book a demo / Contact us** (`/contact/`, linked from the footer and the use-case pages; `?topic=demo`
 picks "Book a demo", `?use_case=<slug>` records the page it came from): each enquiry is saved, then
-emailed to the **Helpdesk email** (Django admin → Platform settings → Contact; seeded from
-`HELPDESK_EMAIL`) with Reply-To set to the sender. Django admin → Portal → **Enquiries** lists them
-all with how delivery went (emailed, failed with the reason, or no helpdesk email set); "Email selected
-enquiries to the helpdesk again" resends. **Show the helpdesk email on the contact page** also shows
-the address publicly. A spam trap and 5 enquiries per IP per hour keep bots out.
+emailed to the **Helpdesk email** (Platform settings → Contact) with Reply-To set to the sender.
+Django admin → Portal → **Enquiries** lists them all with how delivery went (emailed, failed with the
+reason, or no helpdesk email set); "Email selected enquiries to the helpdesk again" resends. **Show
+the helpdesk email on the contact page** also shows the address publicly. A spam trap and 5
+enquiries per IP per hour keep bots out.
 
 ## Brain map
 

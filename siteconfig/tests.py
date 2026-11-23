@@ -133,3 +133,78 @@ class AdminTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         cfg = conf.get(Tenant.objects.get(pk=self.t.pk))
         self.assertEqual((cfg.no_answer_message, cfg.small_talk), ("Acme reply", conf.get().small_talk))
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class EmailSettingsTests(TestCase):
+    """SMTP and the helpdesk, set in Django admin (Platform settings > Email (SMTP) and Contact)."""
+
+    url = "/admin/siteconfig/platformsettings/1/change/"
+
+    def form_data(self, **overrides):
+        data = {k: ("on" if v is True else "" if v is False else v) for k, v in {**conf.defaults(), **overrides}.items()}
+        return {k: v for k, v in data.items() if v != ""}
+
+    def save(self, **values):
+        self.client.get("/admin/siteconfig/platformsettings/")  # creates the row
+        return self.client.post(self.url, self.form_data(**values), follow=True)
+
+    def test_smtp_settings_are_in_admin_and_the_password_is_encrypted(self):
+        page = self.client.get(self.client.get("/admin/siteconfig/platformsettings/").url)
+        for text in ("Email (SMTP)", "SMTP server", "Encryption", "Send emails from", "Send a test email"):
+            self.assertContains(page, text)
+        self.save(smtp_host="smtp.example.com", smtp_port=587, smtp_security="starttls",
+                  smtp_username="mailer@example.com", smtp_password="s3cret-pass", email_from="Acme <hi@example.com>")
+        row = PlatformSettings.objects.get(pk=1)
+        self.assertNotIn("s3cret-pass", row.smtp_password)  # encrypted at rest
+        self.assertEqual(conf.get().smtp_password, "s3cret-pass")
+        page = self.client.get(self.url)
+        self.assertNotContains(page, "s3cret-pass")
+        self.assertContains(page, "A value is saved. Leave blank to keep it.")
+        # Saving again with the field blank keeps it; "Clear" removes it.
+        self.save(smtp_host="smtp.example.com", smtp_username="mailer@example.com")
+        self.assertEqual(conf.get().smtp_password, "s3cret-pass")
+        self.save(smtp_host="smtp.example.com", smtp_password_clear=True)
+        self.assertEqual(conf.get().smtp_password, "")
+
+    def test_validation(self):
+        resp = self.save(email_from="not an address", smtp_security="ssl", smtp_port=587, helpdesk_email="nope")
+        self.assertContains(resp, "Enter an address")
+        self.assertContains(resp, "Port 587 uses STARTTLS")
+        self.assertContains(resp, "Enter one email address")
+
+    def test_backend_uses_the_admin_settings(self):
+        from django.core.mail.backends.console import EmailBackend as Console
+        from django.core.mail.backends.smtp import EmailBackend as SMTP
+
+        from .mail import AdminSettingsBackend, sender
+
+        self.assertIsInstance(AdminSettingsBackend().backend, Console)  # nothing set: log only
+        self.assertEqual(sender(), "SaaS Chat <noreply@localhost>")
+        platform(smtp_host="smtp.example.com", smtp_port=465, smtp_security="ssl", smtp_username="u@example.com",
+                 smtp_timeout=9)
+        conf.invalidate()
+        smtp = AdminSettingsBackend().backend
+        self.assertIsInstance(smtp, SMTP)
+        self.assertEqual((smtp.host, smtp.port, smtp.username, smtp.use_ssl, smtp.use_tls, smtp.timeout),
+                         ("smtp.example.com", 465, "u@example.com", True, False, 9))
+        self.assertEqual(sender(), "SaaS Chat <u@example.com>")  # no sender set: the username
+
+        from django.core.mail import EmailMessage
+
+        sent = []
+        with mock.patch.object(SMTP, "send_messages", lambda self, msgs: sent.extend(msgs) or len(msgs)):
+            EmailMessage("Hi", "Body", None, ["x@example.com"], connection=AdminSettingsBackend()).send()
+        self.assertEqual(sent[0].from_email, "SaaS Chat <u@example.com>")  # default sender replaced
+
+    def test_send_a_test_email_button(self):
+        from django.core import mail
+
+        self.save(helpdesk_email="helpdesk@example.com", smtp_host="smtp.example.com")
+        resp = self.client.post("/admin/siteconfig/platformsettings/test-email/", follow=True)
+        self.assertContains(resp, "Test email sent to helpdesk@example.com through smtp.example.com")
+        self.assertEqual(mail.outbox[0].to, ["helpdesk@example.com"])
+        with mock.patch("django.core.mail.EmailMessage.send", side_effect=OSError("535 Authentication failed")):
+            resp = self.client.post("/admin/siteconfig/platformsettings/test-email/", follow=True)
+        self.assertContains(resp, "The test email to helpdesk@example.com failed: OSError: 535 Authentication failed")
+        self.assertEqual(self.client.get("/admin/siteconfig/platformsettings/test-email/").status_code, 405)

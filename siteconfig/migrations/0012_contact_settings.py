@@ -2,12 +2,13 @@ from django.conf import settings
 from django.db import migrations, models
 
 HELP = ("Where \"Book a demo\" and \"Contact us\" enquiries from the public site are emailed (replies go straight "
-        "to the sender). Every enquiry is also kept under Portal > Enquiries. Sending needs the SMTP settings "
-        "(EMAIL_HOST ...) in the server's .env.")
+        "to the sender). Every enquiry is also kept under Portal > Enquiries.")
 
 
 def seed(apps, schema_editor):
-    apps.get_model("siteconfig", "PlatformSettings").objects.update(helpdesk_email=settings.HELPDESK_EMAIL or "")
+    # HELPDESK_EMAIL in .env was briefly supported; the address is set in Django admin now.
+    apps.get_model("siteconfig", "PlatformSettings").objects.update(
+        helpdesk_email=getattr(settings, "HELPDESK_EMAIL", "") or "")
 
 
 class Migration(migrations.Migration):

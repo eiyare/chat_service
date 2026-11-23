@@ -6,7 +6,8 @@ from django.db import models
 
 from tenants.models import TOKEN_PERIODS, Tenant
 
-from .spec import BOOL, FLOAT, GROUNDING, GROUNDING_MODES, INT, LINE, PERIOD, SPECS, TEXT, WORKSPACE_SPECS
+from .spec import (BOOL, CHOICE, FLOAT, GROUNDING, GROUNDING_MODES, INT, LINE, PERIOD, SECRET, SPECS, TEXT,
+                   WORKSPACE_SPECS)
 
 
 def _field(spec, override: bool):
@@ -31,6 +32,10 @@ def _field(spec, override: bool):
         return models.CharField(max_length=8, choices=TOKEN_PERIODS, blank=override, **common)
     if spec.kind == GROUNDING:
         return models.CharField(max_length=10, choices=GROUNDING_MODES, blank=override, **common)
+    if spec.kind == CHOICE:
+        return models.CharField(max_length=20, choices=list(spec.choices), blank=override, **common)
+    if spec.kind == SECRET:  # ciphertext (llm.crypto); conf decrypts it
+        return models.TextField(blank=True, **common)
     raise ValueError(spec.kind)
 
 
@@ -59,6 +64,17 @@ class PlatformSettings(models.Model):
                 validate_email(self.helpdesk_email.strip())
             except ValidationError:
                 errors["helpdesk_email"] = "Enter one email address, e.g. helpdesk@yourcompany.com."
+        if getattr(self, "email_from", ""):
+            from email.utils import parseaddr
+
+            from django.core.validators import validate_email
+
+            try:
+                validate_email(parseaddr(self.email_from)[1])
+            except ValidationError:
+                errors["email_from"] = 'Enter an address, e.g. noreply@yourcompany.com or "Name <noreply@yourcompany.com>".'
+        if getattr(self, "smtp_security", "") == "ssl" and self.smtp_port == 587:
+            errors["smtp_port"] = "Port 587 uses STARTTLS. Use 465 for SSL/TLS, or choose STARTTLS."
         if self.chunk_overlap is not None and self.chunk_size is not None and self.chunk_overlap >= self.chunk_size:
             errors["chunk_overlap"] = "Must be smaller than the chunk size."
         from rag.extract import SUPPORTED_EXTENSIONS

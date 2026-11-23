@@ -1,0 +1,11 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+  <li>
+    <form method="post" action="{% url 'admin:siteconfig_platformsettings_test_email' %}" style="display: inline">
+      {% csrf_token %}
+      <button type="submit" class="historylink" style="border: 0; cursor: pointer; font: inherit"
+              title="Send a test email with the saved Email (SMTP) settings to the helpdesk email">Send a test email</button>
+    </form>
+  </li>
+  {{ block.super }}
+{% endblock %}

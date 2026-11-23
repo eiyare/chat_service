@@ -10,6 +10,13 @@ from typing import Callable
 from django.conf import settings
 
 TEXT, LINE, INT, FLOAT, BOOL, PERIOD, GROUNDING = "text", "line", "int", "float", "bool", "period", "grounding"
+SECRET = "secret"  # stored encrypted (llm.crypto); the admin never shows it again
+CHOICE = "choice"  # one of Spec.choices
+SMTP_SECURITY = [
+    ("starttls", "STARTTLS (usually port 587)"),
+    ("ssl", "SSL/TLS (usually port 465)"),
+    ("none", "None (only for a mail server on the same machine or network)"),
+]
 GROUNDING_MODES = [
     ("helpful", "Helpful: facts only from documents; general knowledge to understand questions and offer related info"),
     ("strict", "Strict: documents only, nothing else"),
@@ -28,6 +35,7 @@ class Spec:
     min: float | None = None
     max: float | None = None
     optional: bool = False  # text settings: may be left blank on the platform too
+    choices: tuple = ()     # CHOICE settings: ((value, label), ...)
 
 
 def _s(name):
@@ -38,9 +46,9 @@ def _pidgin(key):
     return lambda: settings.CHAT_PIDGIN_REPLIES[key]
 
 
-WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP, CONTACT = (
+WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP, CONTACT, EMAIL = (
     "Assistant wording", "Persona (English)", "Persona (Nigerian Pidgin)", "Answering",
-    "Search and FAQs", "Document processing", "Workspace defaults", "Sign-up", "Contact",
+    "Search and FAQs", "Document processing", "Workspace defaults", "Sign-up", "Contact", "Email (SMTP)",
 )
 PLACEHOLDERS = "Placeholders: {assistant} = chatbot name, {workspace} = workspace name."
 
@@ -145,13 +153,30 @@ SPECS = [
          help="Workspaces an account may create itself. Superusers are not limited. Free workspaces use the "
               "Workspace defaults limits above.", min=0, max=100),
     # --- Contact (global) ---------------------------------------------------------------------
-    Spec("helpdesk_email", LINE, CONTACT, "Helpdesk email", _s("HELPDESK_EMAIL"), optional=True,
+    Spec("helpdesk_email", LINE, CONTACT, "Helpdesk email", lambda: "", optional=True,
          help="Where \"Book a demo\" and \"Contact us\" enquiries from the public site are emailed (replies go "
-              "straight to the sender). Every enquiry is also kept under Portal > Enquiries. Sending needs the "
-              "SMTP settings (EMAIL_HOST ...) in the server's .env."),
+              "straight to the sender). Every enquiry is also kept under Portal > Enquiries. Sending uses the "
+              "Email (SMTP) settings below."),
     Spec("show_helpdesk_email", BOOL, CONTACT, "Show the helpdesk email on the contact page", lambda: False,
          help="Also show the address on the contact page, for people who prefer to write directly. Public "
               "addresses attract spam."),
+    # --- Email (SMTP) (global) ------------------------------------------------------------------
+    Spec("smtp_host", LINE, EMAIL, "SMTP server", lambda: "", optional=True,
+         help="Your mail provider's SMTP server, e.g. smtp-relay.brevo.com, smtp.sendgrid.net or smtp.gmail.com. "
+              "Blank: emails are not sent, only written to the server log. Use \"Send a test email\" at the top "
+              "of this page after saving."),
+    Spec("smtp_port", INT, EMAIL, "Port", lambda: 587, min=1, max=65535,
+         help="Usually 587 with STARTTLS, or 465 with SSL/TLS."),
+    Spec("smtp_security", CHOICE, EMAIL, "Encryption", lambda: "starttls", choices=tuple(SMTP_SECURITY)),
+    Spec("smtp_username", LINE, EMAIL, "Username", lambda: "", optional=True,
+         help="Often your full email address, or the login your provider gives you."),
+    Spec("smtp_password", SECRET, EMAIL, "Password", lambda: "",
+         help="Or the app password / API key your provider gives you. Stored encrypted and never shown again."),
+    Spec("email_from", LINE, EMAIL, "Send emails from", lambda: "", optional=True,
+         help="The sender, e.g. \"SaaS Chat <noreply@yourcompany.com>\". Most providers only accept addresses "
+              "on a domain you have verified with them. Blank: the SMTP username."),
+    Spec("smtp_timeout", INT, EMAIL, "Timeout (seconds)", lambda: 15, min=1, max=120,
+         help="How long to wait for the mail server before giving up."),
 ]
 BY_NAME = {s.name: s for s in SPECS}
 WORKSPACE_SPECS = [s for s in SPECS if s.per_workspace]
