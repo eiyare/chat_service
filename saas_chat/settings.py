@@ -583,7 +583,8 @@ if RAG_TOP_K < 1:
 
 # Behind a reverse proxy, set True so rate limits use the visitor's real IP
 # (first X-Forwarded-For entry). Only enable when the proxy sets that header.
-WIDGET_TRUST_X_FORWARDED_FOR = env_bool("WIDGET_TRUST_X_FORWARDED_FOR", False)
+# Visitors' IP addresses behind a reverse proxy: the admin setting "Proxies in front of the app"
+# (Platform settings > Traffic). WIDGET_TRUST_X_FORWARDED_FOR in .env is no longer read.
 
 # ---------------------------------------------------------------------------
 # Admin-managed settings (siteconfig)

@@ -182,6 +182,11 @@ SPECS = [
     Spec("traffic_enabled", BOOL, TRAFFIC, "Record requests", lambda: True,
          help="Record each request for Traffic > Traffic dashboard: page, status, time taken, workspace, browser, "
               "device and (below) IP address. Unique visitors are counted without cookies."),
+    Spec("trusted_proxies", INT, TRAFFIC, "Proxies in front of the app", lambda: 1, min=0, max=5,
+         help="How many reverse proxies pass requests to the app: 1 for nginx (or Apache, Caddy) on the server, 2 "
+              "with Cloudflare or a load balancer in front of that, 0 if visitors reach the app directly. Used to "
+              "find visitors' real IP addresses (X-Forwarded-For) for rate limits and Traffic. If every visitor "
+              "shows the same IP, such as 127.0.0.1, this is too low."),
     Spec("traffic_store_ip", BOOL, TRAFFIC, "Store IP addresses", lambda: True,
          help="IP addresses are personal data in many countries. Off: visitors are still counted, but no address "
               "is kept."),

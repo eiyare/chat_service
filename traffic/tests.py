@@ -145,3 +145,43 @@ class DashboardTests(TestCase):
                             self.client.get(self.client.get("/admin/siteconfig/platformsettings/").url), "Traffic")
         self.client.logout()
         self.assertEqual(self.client.get(self.url).status_code, 302)  # to the admin login
+
+
+class ClientIPTests(TestCase):
+    """The visitor's IP behind reverse proxies (admin: Proxies in front of the app)."""
+
+    def ip(self, remote="127.0.0.1", forwarded=None, real_ip=None):
+        from django.test import RequestFactory
+
+        from widget.ratelimit import client_ip
+
+        meta = {"REMOTE_ADDR": remote}
+        if forwarded is not None:
+            meta["HTTP_X_FORWARDED_FOR"] = forwarded
+        if real_ip is not None:
+            meta["HTTP_X_REAL_IP"] = real_ip
+        return client_ip(RequestFactory().get("/", **meta))
+
+    def test_behind_nginx_the_visitor_is_the_last_entry(self):
+        self.assertEqual(self.ip(forwarded="203.0.113.7"), "203.0.113.7")
+        # A visitor's own fake header comes first; nginx appends the real address last.
+        self.assertEqual(self.ip(forwarded="6.6.6.6, 203.0.113.7"), "203.0.113.7")
+        self.assertEqual(self.ip(forwarded="[2001:db8::5]:443"), "2001:db8::5")
+        self.assertEqual(self.ip(forwarded="203.0.113.7:51234"), "203.0.113.7")
+        self.assertEqual(self.ip(real_ip="203.0.113.9"), "203.0.113.9")  # nginx with X-Real-IP only
+        self.assertEqual(self.ip(forwarded="not-an-ip"), "127.0.0.1")
+        self.assertEqual(self.ip(), "127.0.0.1")  # no header: the proxy itself (or local use)
+
+    def test_two_proxies_and_none(self):
+        settings_row(trusted_proxies=2)  # e.g. Cloudflare, then nginx
+        self.assertEqual(self.ip(forwarded="6.6.6.6, 203.0.113.7, 172.70.1.1"), "203.0.113.7")
+        settings_row(trusted_proxies=0)  # visitors reach the app directly
+        self.assertEqual(self.ip(forwarded="203.0.113.7"), "127.0.0.1")
+
+    def test_header_ignored_when_not_from_a_proxy(self):
+        # Someone reaching the app directly can't choose their IP with the header.
+        self.assertEqual(self.ip(remote="8.8.4.4", forwarded="6.6.6.6"), "8.8.4.4")
+
+    def test_recorded_in_traffic(self):
+        self.client.get("/use-cases/", REMOTE_ADDR="127.0.0.1", HTTP_X_FORWARDED_FOR="203.0.113.7")
+        self.assertEqual(RequestLog.objects.get(path="/use-cases/").ip, "203.0.113.7")

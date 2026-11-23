@@ -63,7 +63,7 @@ def _where(request):
 
 
 def _ip(request) -> str:
-    from widget.ratelimit import client_ip  # honours WIDGET_TRUST_X_FORWARDED_FOR behind a proxy
+    from widget.ratelimit import client_ip  # the visitor's IP behind proxies (admin: Proxies in front of the app)
 
     return client_ip(request)
 

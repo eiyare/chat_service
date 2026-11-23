@@ -30,7 +30,7 @@ Behaviour is configured in the Django admin, not `.env`:
   relevance cut-offs), FAQs, website widgets, users and memberships.
 
 `.env` keeps secrets and infrastructure: `DJANGO_SECRET_KEY`, database, hosts,
-`LLM_ENCRYPTION_KEY`, provider credentials, `WIDGET_TRUST_X_FORWARDED_FOR`.
+`LLM_ENCRYPTION_KEY`, provider credentials.
 
 ## Home page, sign-up and free chatbots
 
@@ -178,8 +178,9 @@ widget, Moodle and API calls (`/w/<key>/…`) are attributed to their workspace;
 Unique visitors are counted without cookies: a signed-in user counts as themselves, anyone else as a
 daily-changing hash of IP address and browser. Settings (Platform settings → Traffic): record or not,
 store IP addresses or not, days to keep logs (older ones are deleted hourly; `manage.py purge_traffic`
-does it now) and paths not to record. Behind a proxy, set `WIDGET_TRUST_X_FORWARDED_FOR=1` so the
-visitor's IP is used rather than the proxy's.
+does it now) and paths not to record. **Proxies in front of the app** (default 1, for nginx on the
+server) makes the visitor's IP come from `X-Forwarded-For`, counted from the right so it can't be
+faked; if every visitor shows the same IP, such as 127.0.0.1, it is too low.
 
 ## Brain map
 
@@ -261,8 +262,8 @@ Django admin (*Website widget*).
 
 For production: serve over HTTPS, put the platform's host in
 `DJANGO_ALLOWED_HOSTS`, use a shared cache (e.g. Redis) so rate limits apply
-across server processes, and set `WIDGET_TRUST_X_FORWARDED_FOR=1` only behind
-a proxy that sets that header.
+across server processes, and set **Proxies in front of the app** (Platform
+settings → Traffic) to the number of reverse proxies in front of it.
 
 ## Token limits
 
