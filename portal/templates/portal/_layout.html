@@ -24,5 +24,5 @@
   {% if messages %}<ul class="notice" role="status">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>{% endif %}
   {% block main %}{% endblock %}
 </main>
-<footer class="foot"><span>&copy; {% now "Y" %} {{ SITE_NAME }}</span><span class="mono">Grounded AI assistants for your documents</span></footer>
+<footer class="foot"><span>&copy; {% now "Y" %} {{ SITE_NAME }} · <a href="{% url 'portal:contact' %}">Contact us</a> · <a href="{% url 'portal:contact' %}?topic=demo">Book a demo</a></span><span class="mono">Grounded AI assistants for your documents</span></footer>
 {% endblock %}

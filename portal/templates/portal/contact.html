@@ -1,0 +1,43 @@
+{% extends "portal/_layout.html" %}
+{% block title %}{% if form.kind.value == "demo" %}Book a demo{% else %}Contact us{% endif %} · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="contact">
+  <div class="contact-copy">
+    <p class="eyebrow mono">{% if case %}{{ case.name }}{% else %}Talk to us{% endif %}</p>
+    <h1>See it working on your own material.</h1>
+    <p class="lead">Book a demo and we'll show you {{ SITE_NAME }} answering from content like yours{% if case %}, set up for {{ case.name|lower }}{% endif %}. Or send us a question. A person reads every message and replies by email.</p>
+    <ul class="ticks contact-points">
+      <li>A walkthrough shaped around your questions, not a generic slideshow.</li>
+      <li>Straight answers on setup, data protection and cost.</li>
+      <li>No obligation. You can also <a href="{% url 'portal:use_cases' %}">explore the use cases</a>{% if plan.signup %} or <a href="{% url 'portal:signup' %}">start free</a>{% endif %}.</li>
+    </ul>
+    {% if helpdesk %}<p class="muted small">Prefer email? Write to <a href="mailto:{{ helpdesk }}">{{ helpdesk }}</a>.</p>{% endif %}
+  </div>
+
+  <form class="card formcard contact-form" method="post" novalidate>
+    {% csrf_token %}
+    {% for e in form.non_field_errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+    <fieldset class="kind">
+      <legend class="sr-only">{{ form.kind.label }}</legend>
+      {% for radio in form.kind %}
+        <label class="kind-opt">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    {% for field in form %}
+      {% if field.name == "website" %}
+        <div class="trap" aria-hidden="true"><label for="{{ field.id_for_label }}">Leave empty</label>{{ field }}</div>
+      {% elif field.is_hidden %}
+        {{ field }}
+      {% elif field.name != "kind" %}
+        <div class="field{% if field.errors %} has-error{% endif %}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span aria-hidden="true" class="req">*</span>{% endif %}</label>
+          {{ field }}
+          {% for e in field.errors %}<p class="error">{{ e }}</p>{% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+    <button class="btn primary block" type="submit">Send</button>
+    <p class="muted small">We use your details only to reply to you.</p>
+  </form>
+</section>
+{% endblock %}

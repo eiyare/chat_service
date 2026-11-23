@@ -1,5 +1,6 @@
 """Login is required everywhere; access to a workspace comes from memberships."""
 import json
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -176,3 +177,109 @@ class UseCasePageTests(TestCase):
         resp = self.client.get("/")
         self.assertContains(resp, 'href="/use-cases/moodle/"')
         self.assertContains(resp, 'href="/use-cases/" class="nav-link"')
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+                   DEFAULT_FROM_EMAIL="SaaS Chat <noreply@example.com>")
+class ContactTests(TestCase):
+    """Book a demo / Contact us: saved, then emailed to the helpdesk from the admin settings."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.client.logout()
+        self.set_helpdesk("helpdesk@example.com")
+
+    def set_helpdesk(self, address):
+        from siteconfig.models import PlatformSettings
+
+        PlatformSettings.objects.update_or_create(pk=1, defaults={**conf.defaults(), "helpdesk_email": address})
+        conf.invalidate()
+
+    def post(self, **data):
+        payload = {"kind": "demo", "name": "Ada Obi", "email": "ada@school.edu.ng", "organisation": "Unity College",
+                   "role": "Principal", "phone": "", "message": "We run Moodle 4.3.", "use_case": "moodle",
+                   "website": ""}
+        payload.update(data)
+        return self.client.post("/contact/", payload)
+
+    def test_demo_request_is_saved_and_emailed_to_the_helpdesk(self):
+        from django.core import mail
+
+        from portal.models import Enquiry
+
+        resp = self.post()
+        self.assertRedirects(resp, "/contact/thanks/", fetch_redirect_response=False)
+        enquiry = Enquiry.objects.get()
+        self.assertEqual((enquiry.kind, enquiry.use_case, enquiry.delivery, enquiry.sent_to),
+                         ("demo", "moodle", "sent", "helpdesk@example.com"))
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["helpdesk@example.com"])
+        self.assertEqual(sent.reply_to, ["ada@school.edu.ng"])  # reply goes straight to them
+        self.assertIn("Book a demo: Ada Obi (Unity College)", sent.subject)
+        self.assertIn("We run Moodle 4.3.", sent.body)
+        self.assertIn(f"/admin/portal/enquiry/{enquiry.pk}/change/", sent.body)
+        self.assertContains(self.client.get("/contact/thanks/"), "find a time for your demo")
+
+    def test_kept_even_when_email_fails_or_no_helpdesk_is_set(self):
+        from django.core import mail
+
+        from portal.models import Enquiry
+
+        with mock.patch("django.core.mail.EmailMessage.send", side_effect=OSError("Connection refused")):
+            self.assertRedirects(self.post(), "/contact/thanks/")
+        failed = Enquiry.objects.get()
+        self.assertEqual((failed.delivery, failed.delivery_error), ("failed", "OSError: Connection refused"))
+        self.set_helpdesk("")
+        self.assertRedirects(self.post(email="b@example.com"), "/contact/thanks/")
+        self.assertEqual(Enquiry.objects.get(email="b@example.com").delivery, "no_helpdesk")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_contact_needs_a_message_and_demo_does_not(self):
+        resp = self.post(kind="contact", message="")
+        self.assertContains(resp, "Tell us how we can help.")
+        self.assertRedirects(self.post(kind="demo", message=""), "/contact/thanks/")
+
+    def test_spam_trap_rate_limit_and_unknown_use_case(self):
+        from portal.models import Enquiry
+
+        self.assertRedirects(self.post(website="http://spam"), "/contact/thanks/")
+        self.assertFalse(Enquiry.objects.exists())  # silently dropped
+        self.post(use_case="not-a-page")
+        self.assertEqual(Enquiry.objects.get().use_case, "")
+        for _ in range(5):
+            self.post()
+        self.assertContains(self.post(), "Too many messages")
+
+    def test_links_and_prefill(self):
+        page = self.client.get("/contact/?topic=demo&use_case=moodle")
+        self.assertRegex(page.content.decode(), r'<input[^>]*value="demo"[^>]*checked')
+        self.assertContains(page, 'value="moodle"')
+        self.assertContains(self.client.get("/use-cases/moodle/"), "/contact/?topic=demo&amp;use_case=moodle")
+        self.assertContains(self.client.get("/"), 'href="/contact/"')
+
+    def test_helpdesk_email_shown_only_when_chosen(self):
+        from siteconfig.models import PlatformSettings
+
+        self.assertNotContains(self.client.get("/contact/"), "helpdesk@example.com")
+        PlatformSettings.objects.filter(pk=1).update(show_helpdesk_email=True)
+        conf.invalidate()
+        self.assertContains(self.client.get("/contact/"), "mailto:helpdesk@example.com")
+
+    def test_admin_lists_and_resends(self):
+        from django.core import mail
+
+        from portal.models import Enquiry
+
+        with mock.patch("django.core.mail.EmailMessage.send", side_effect=OSError("down")):
+            self.post()
+        admin_user = User.objects.create_superuser("boss", "boss@example.com", "pw-123456")
+        self.client.force_login(admin_user)
+        self.assertContains(self.client.get("/admin/portal/enquiry/"), "Unity College")
+        enquiry = Enquiry.objects.get()
+        self.client.post("/admin/portal/enquiry/", {"action": "send_again", "_selected_action": [enquiry.pk]})
+        enquiry.refresh_from_db()
+        self.assertEqual(enquiry.delivery, "sent")
+        self.assertEqual(len(mail.outbox), 1)

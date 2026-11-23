@@ -18,9 +18,9 @@ def _field(spec, override: bool):
     common = {"verbose_name": spec.label, "help_text": spec.help}
     blank = {"null": True, "blank": True} if override else {}
     if spec.kind == TEXT:
-        return models.TextField(blank=override, **common)
+        return models.TextField(blank=override or spec.optional, **common)
     if spec.kind == LINE:
-        return models.CharField(max_length=500, blank=override, **common)
+        return models.CharField(max_length=500, blank=override or spec.optional, **common)
     if spec.kind == INT:
         return models.IntegerField(validators=validators, **blank, **common)
     if spec.kind == FLOAT:
@@ -52,6 +52,13 @@ class PlatformSettings(models.Model):
 
     def clean(self):
         errors = {}
+        if getattr(self, "helpdesk_email", ""):
+            from django.core.validators import validate_email
+
+            try:
+                validate_email(self.helpdesk_email.strip())
+            except ValidationError:
+                errors["helpdesk_email"] = "Enter one email address, e.g. helpdesk@yourcompany.com."
         if self.chunk_overlap is not None and self.chunk_size is not None and self.chunk_overlap >= self.chunk_size:
             errors["chunk_overlap"] = "Must be smaller than the chunk size."
         from rag.extract import SUPPORTED_EXTENSIONS

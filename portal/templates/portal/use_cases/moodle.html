@@ -8,8 +8,8 @@
     <h1 id="uc-h">Every student gets an answer.<br><span class="glow">Every teacher gets time back.</span></h1>
     <p class="lead">A course assistant that lives inside Moodle. It answers students from their own course, knows their grades, completion and deadlines, and stays out of the way during quizzes. Your teachers stop answering the same questions, and your students stop waiting for replies.</p>
     <div class="cta">
-      {% if plan.signup %}<a class="btn primary lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
-      <a class="btn ghost lg" href="#how">See how it works</a>
+      <a class="btn primary lg" href="{% url 'portal:contact' %}?topic=demo&amp;use_case={{ case.slug }}">Book a demo</a>
+      {% if plan.signup %}<a class="btn ghost lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
     </div>
     <ul class="trust">
       <li>Moodle 4.0 and later</li>
@@ -170,17 +170,17 @@
   <details><summary>What happens when it doesn't know?</summary><p>It says so, rather than guessing. Those questions appear in your performance report, so you can add the missing document or an FAQ.</p></details>
   <details><summary>Which Moodle versions are supported?</summary><p>Moodle 4.0 and later. It installs as a standard local plugin through Moodle's plugin installer, with no changes to Moodle's core code or your theme.</p></details>
   <details><summary>Do teachers need to set anything up?</summary><p>No. It reads what's already in each course. Teachers who keep dates and instructions in Moodle get better answers automatically.</p></details>
-  <details><summary>How is it priced?</summary><p>You can start free and try it with your own material. Usage allowances keep costs predictable as you roll it out to more courses.</p></details>
+  <details><summary>How is it priced?</summary><p>You can start free and try it with your own material. Usage allowances keep costs predictable as you roll it out to more courses. <a href="{% url 'portal:contact' %}?topic=demo&amp;use_case={{ case.slug }}">Book a demo</a> to talk through what fits your school.</p></details>
 </section>
 {% endblock %}
 
 {% block closing %}
 <section class="closing card" aria-labelledby="closing-h">
   <h2 id="closing-h">Give every student a course assistant.</h2>
-  <p class="lead">Start free, connect a test course, and ask it the questions your students ask.</p>
+  <p class="lead">Book a demo to see it with a course like yours, or start free and connect a test course yourself.</p>
   <div class="cta">
-    {% if plan.signup %}<a class="btn primary lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
-    <a class="btn ghost lg" href="{% url 'portal:use_cases' %}">Other use cases</a>
+    <a class="btn primary lg" href="{% url 'portal:contact' %}?topic=demo&amp;use_case={{ case.slug }}">Book a demo</a>
+    {% if plan.signup %}<a class="btn ghost lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
   </div>
 </section>
 {% endblock %}

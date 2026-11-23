@@ -145,3 +145,59 @@ def use_case(request, slug):
         raise Http404("No such use case")
     others = [u for u in USE_CASES if u.slug != slug]
     return render(request, case.template, {"case": case, "others": others, "plan": _plan()})
+
+
+ENQUIRIES_PER_IP_PER_HOUR = 5
+
+
+def _enquiry_rate_ok(request) -> bool:
+    key = f"enquiry-rl:{client_ip(request)}:{int(time.time() // 3600)}"
+    if cache.add(key, 1, timeout=3700):
+        return True
+    try:
+        return cache.incr(key) <= ENQUIRIES_PER_IP_PER_HOUR
+    except ValueError:
+        return True
+
+
+@login_not_required
+@require_http_methods(["GET", "POST"])
+def contact(request):
+    """Book a demo / Contact us: saved, then emailed to the helpdesk (portal/contact.py).
+    ?topic=demo picks "Book a demo"; ?use_case=<slug> records the page they came from."""
+    from . import contact as contact_lib
+    from .forms import ContactForm
+    from .models import Enquiry
+    from .use_cases import BY_SLUG
+
+    topic = request.GET.get("topic")
+    use_case = BY_SLUG.get(request.GET.get("use_case", ""))
+    initial = {"kind": Enquiry.Kind.DEMO if topic == "demo" else Enquiry.Kind.CONTACT,
+               "use_case": use_case.slug if use_case else ""}
+    if request.user.is_authenticated:
+        initial.update(name=request.user.get_full_name(), email=request.user.email)
+    form = ContactForm(request.POST or None, initial=initial)
+    if request.method == "POST":
+        if form.data.get("website"):  # spam trap filled in: pretend it worked
+            return redirect("portal:contact_thanks")
+        if not _enquiry_rate_ok(request):
+            form.add_error(None, "Too many messages from your network. Please try again in an hour.")
+        elif form.is_valid():
+            enquiry = form.save()
+            contact_lib.deliver(enquiry, request)
+            request.session["enquiry_kind"] = enquiry.kind
+            return redirect("portal:contact_thanks")
+    cfg = conf.get()
+    case = BY_SLUG.get(form["use_case"].value() or "")
+    return render(request, "portal/contact.html", {
+        "form": form, "plan": _plan(), "case": case,
+        "helpdesk": cfg.helpdesk_email if cfg.show_helpdesk_email else "",
+    })
+
+
+@login_not_required
+def contact_thanks(request):
+    from .models import Enquiry
+
+    demo = request.session.pop("enquiry_kind", "") == Enquiry.Kind.DEMO
+    return render(request, "portal/contact_thanks.html", {"demo": demo, "plan": _plan()})

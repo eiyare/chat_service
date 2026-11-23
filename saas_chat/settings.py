@@ -237,6 +237,30 @@ LOGGING = {
 SITE_NAME = env_str("SITE_NAME", "SaaS Chat")
 
 # ---------------------------------------------------------------------------
+# Email (SMTP)
+# ---------------------------------------------------------------------------
+# Outgoing mail, e.g. "Book a demo" / "Contact us" enquiries to the helpdesk. Without
+# EMAIL_HOST, emails are printed to the console instead of sent (fine for development).
+# Where enquiries go is the admin setting "Helpdesk email" (seeded from HELPDESK_EMAIL).
+# Test with: python manage.py sendtestemail you@example.com
+EMAIL_HOST = env_str("EMAIL_HOST", "")
+EMAIL_PORT = env_int("EMAIL_PORT", 587)
+EMAIL_HOST_USER = env_str("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env_str("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)    # STARTTLS, usually port 587
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)   # implicit TLS, usually port 465
+EMAIL_TIMEOUT = env_int("EMAIL_TIMEOUT", 15)       # seconds
+EMAIL_BACKEND = env_str(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = env_str("DEFAULT_FROM_EMAIL", f"{SITE_NAME} <noreply@localhost>")
+SERVER_EMAIL = env_str("SERVER_EMAIL", DEFAULT_FROM_EMAIL)  # sender of Django's own error emails
+HELPDESK_EMAIL = env_str("HELPDESK_EMAIL", "")
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured("Set only one of EMAIL_USE_TLS and EMAIL_USE_SSL.")
+
+# ---------------------------------------------------------------------------
 # Tenants
 # ---------------------------------------------------------------------------
 

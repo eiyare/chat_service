@@ -147,6 +147,21 @@ plugin) and `search_course`, for up to 4 rounds, before answering. Its instructi
 platform setting **Instructions: Moodle student tools** (per-workspace override available). See
 `integrations/moodle/local_saaschat/README.md` for the Moodle side and how lookups are protected.
 
+## Email and enquiries
+
+**SMTP** (`.env`): `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`
+(STARTTLS, port 587) or `EMAIL_USE_SSL` (port 465), `EMAIL_TIMEOUT` and `DEFAULT_FROM_EMAIL` (most
+services only accept a verified sender). Without `EMAIL_HOST`, emails are printed to the console.
+Check the setup with `python manage.py sendtestemail you@example.com`.
+
+**Book a demo / Contact us** (`/contact/`, linked from the footer and the use-case pages; `?topic=demo`
+picks "Book a demo", `?use_case=<slug>` records the page it came from): each enquiry is saved, then
+emailed to the **Helpdesk email** (Django admin → Platform settings → Contact; seeded from
+`HELPDESK_EMAIL`) with Reply-To set to the sender. Django admin → Portal → **Enquiries** lists them
+all with how delivery went (emailed, failed with the reason, or no helpdesk email set); "Email selected
+enquiries to the helpdesk again" resends. **Show the helpdesk email on the contact page** also shows
+the address publicly. A spam trap and 5 enquiries per IP per hour keep bots out.
+
 ## Brain map
 
 Admin → **Brain map** lists the workspace's conversations (filter by channel, outcome or text)

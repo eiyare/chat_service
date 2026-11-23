@@ -27,6 +27,7 @@ class Spec:
     help: str = ""
     min: float | None = None
     max: float | None = None
+    optional: bool = False  # text settings: may be left blank on the platform too
 
 
 def _s(name):
@@ -37,9 +38,9 @@ def _pidgin(key):
     return lambda: settings.CHAT_PIDGIN_REPLIES[key]
 
 
-WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP = (
+WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP, CONTACT = (
     "Assistant wording", "Persona (English)", "Persona (Nigerian Pidgin)", "Answering",
-    "Search and FAQs", "Document processing", "Workspace defaults", "Sign-up",
+    "Search and FAQs", "Document processing", "Workspace defaults", "Sign-up", "Contact",
 )
 PLACEHOLDERS = "Placeholders: {assistant} = chatbot name, {workspace} = workspace name."
 
@@ -143,6 +144,14 @@ SPECS = [
     Spec("free_chatbots_per_account", INT, SIGNUP, "Free chatbots per account", _s("PORTAL_FREE_CHATBOTS_PER_ACCOUNT"),
          help="Workspaces an account may create itself. Superusers are not limited. Free workspaces use the "
               "Workspace defaults limits above.", min=0, max=100),
+    # --- Contact (global) ---------------------------------------------------------------------
+    Spec("helpdesk_email", LINE, CONTACT, "Helpdesk email", _s("HELPDESK_EMAIL"), optional=True,
+         help="Where \"Book a demo\" and \"Contact us\" enquiries from the public site are emailed (replies go "
+              "straight to the sender). Every enquiry is also kept under Portal > Enquiries. Sending needs the "
+              "SMTP settings (EMAIL_HOST ...) in the server's .env."),
+    Spec("show_helpdesk_email", BOOL, CONTACT, "Show the helpdesk email on the contact page", lambda: False,
+         help="Also show the address on the contact page, for people who prefer to write directly. Public "
+              "addresses attract spam."),
 ]
 BY_NAME = {s.name: s for s in SPECS}
 WORKSPACE_SPECS = [s for s in SPECS if s.per_workspace]

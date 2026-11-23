@@ -16,10 +16,10 @@
   {% block closing %}
   <section class="closing card" aria-labelledby="closing-h">
     <h2 id="closing-h">See it with your own content.</h2>
-    <p class="lead">Start free, add your material, and try the assistant yourself before anyone else does.</p>
+    <p class="lead">Book a demo to see it with material like yours, or start free and try it yourself.</p>
     <div class="cta">
-      {% if plan.signup %}<a class="btn primary lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
-      <a class="btn ghost lg" href="{% url 'portal:home' %}#signin">Sign in</a>
+      <a class="btn primary lg" href="{% url 'portal:contact' %}?topic=demo&amp;use_case={{ case.slug }}">Book a demo</a>
+      {% if plan.signup %}<a class="btn ghost lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
     </div>
   </section>
   {% endblock %}
