@@ -1,0 +1,16 @@
+<section class="tr-card">
+  <h2>{{ title }}</h2>
+  {% if rows %}
+  <table class="tr-table">
+    <thead><tr><th>{{ title }}</th><th class="bar"></th><th class="n">Requests</th><th class="n">Visitors</th>{% if errors %}<th class="n">5xx</th>{% endif %}</tr></thead>
+    <tbody>{% for r in rows %}
+      <tr>
+        <td class="lbl" title="{{ r.value }}">{% if field %}<a href="{{ log_url }}{{ log_filter }}&amp;{{ field }}__exact={{ r.value|urlencode }}">{{ r.value }}</a>{% else %}{{ r.value }}{% endif %}</td>
+        <td class="bar"><span style="width: {{ r.share }}%"></span></td>
+        <td class="n">{{ r.requests }}</td><td class="n">{{ r.visitors }}</td>
+        {% if errors %}<td class="n{% if r.errors %} tr-bad{% endif %}">{{ r.errors }}</td>{% endif %}
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="tr-empty">No requests in this period.</p>{% endif %}
+</section>

@@ -46,9 +46,10 @@ def _pidgin(key):
     return lambda: settings.CHAT_PIDGIN_REPLIES[key]
 
 
-WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP, CONTACT, EMAIL = (
+WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP, CONTACT, EMAIL, TRAFFIC = (
     "Assistant wording", "Persona (English)", "Persona (Nigerian Pidgin)", "Answering",
     "Search and FAQs", "Document processing", "Workspace defaults", "Sign-up", "Contact", "Email (SMTP)",
+    "Traffic",
 )
 PLACEHOLDERS = "Placeholders: {assistant} = chatbot name, {workspace} = workspace name."
 
@@ -177,6 +178,18 @@ SPECS = [
               "on a domain you have verified with them. Blank: the SMTP username."),
     Spec("smtp_timeout", INT, EMAIL, "Timeout (seconds)", lambda: 15, min=1, max=120,
          help="How long to wait for the mail server before giving up."),
+    # --- Traffic (global) -----------------------------------------------------------------------
+    Spec("traffic_enabled", BOOL, TRAFFIC, "Record requests", lambda: True,
+         help="Record each request for Traffic > Traffic dashboard: page, status, time taken, workspace, browser, "
+              "device and (below) IP address. Unique visitors are counted without cookies."),
+    Spec("traffic_store_ip", BOOL, TRAFFIC, "Store IP addresses", lambda: True,
+         help="IP addresses are personal data in many countries. Off: visitors are still counted, but no address "
+              "is kept."),
+    Spec("traffic_retention_days", INT, TRAFFIC, "Keep request logs for (days)", lambda: 90, min=1, max=3650,
+         help="Older requests are deleted automatically (checked hourly)."),
+    Spec("traffic_exclude_paths", TEXT, TRAFFIC, "Don't record these paths", lambda: "/static/\n/media/\n"
+         "/favicon.ico\n/robots.txt", optional=True,
+         help="One per line. A line matches every path that starts with it."),
 ]
 BY_NAME = {s.name: s for s in SPECS}
 WORKSPACE_SPECS = [s for s in SPECS if s.per_workspace]

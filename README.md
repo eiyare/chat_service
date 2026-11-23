@@ -164,6 +164,23 @@ reason, or no helpdesk email set); "Email selected enquiries to the helpdesk aga
 the helpdesk email on the contact page** also shows the address publicly. A spam trap and 5
 enquiries per IP per hour keep bots out.
 
+## Traffic
+
+Django admin → Traffic → **Traffic dashboard** shows requests for the whole platform, or one workspace
+(the Workspace selector, or a row of "By workspace"), over the last 24 hours, 7, 30 or 90 days, for
+people, bots or both: requests, unique visitors, IP addresses, signed-in users, HTTPS share, 4xx/5xx
+errors, median response time and bots; requests per hour or day; and the top pages, IP addresses,
+browsers and bots, operating systems, devices, referring sites, parts of the app and status codes.
+Every row links to **Requests**, the full searchable log.
+
+`traffic.middleware.TrafficMiddleware` records each request. Workspace pages (`/t/<slug>/…`) and
+widget, Moodle and API calls (`/w/<key>/…`) are attributed to their workspace; the rest is "Platform".
+Unique visitors are counted without cookies: a signed-in user counts as themselves, anyone else as a
+daily-changing hash of IP address and browser. Settings (Platform settings → Traffic): record or not,
+store IP addresses or not, days to keep logs (older ones are deleted hourly; `manage.py purge_traffic`
+does it now) and paths not to record. Behind a proxy, set `WIDGET_TRUST_X_FORWARDED_FOR=1` so the
+visitor's IP is used rather than the proxy's.
+
 ## Brain map
 
 Admin → **Brain map** lists the workspace's conversations (filter by channel, outcome or text)

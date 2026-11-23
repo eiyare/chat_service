@@ -1,0 +1,134 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .tr { --tr-bar: var(--link-fg, #417690); --tr-muted: var(--body-quiet-color, #666); --tr-line: var(--hairline-color, #e8e8e8);
+        --tr-card: var(--darkened-bg, #f8f8f8); max-width: 1180px; }
+  .tr-filters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; margin: 0 0 20px; }
+  .tr-filters label { display: grid; gap: 4px; font-size: 12px; color: var(--tr-muted); font-weight: 600; }
+  .tr-filters select { min-width: 160px; }
+  .tr-filters .tr-browse { margin-left: auto; align-self: center; }
+  .tr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .tr-tile { background: var(--tr-card); border: 1px solid var(--tr-line); border-radius: 8px; padding: 12px 14px; }
+  .tr-tile .k { font-size: 12px; color: var(--tr-muted); }
+  .tr-tile .v { font-size: 24px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .tr-tile .s { font-size: 11px; color: var(--tr-muted); }
+  .tr-card { background: var(--body-bg, #fff); border: 1px solid var(--tr-line); border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; }
+  .tr-card h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; background: none; color: var(--body-fg); padding: 0; text-transform: none; letter-spacing: 0; }
+  .tr-card h2 .tr-note { font-weight: 400; color: var(--tr-muted); font-size: 12px; margin-left: 6px; }
+  .tr-chart { display: flex; align-items: flex-end; gap: 2px; height: 170px; padding-top: 18px; border-bottom: 1px solid var(--tr-line); position: relative; }
+  .tr-chart .b { flex: 1 1 0; min-width: 2px; height: 100%; display: flex; align-items: flex-end; position: relative; }
+  .tr-chart .b i { display: block; width: 100%; background: var(--tr-bar); border-radius: 4px 4px 0 0; min-height: 0; }
+  .tr-chart .b:hover i { filter: brightness(1.2); }
+  .tr-chart .b:hover::after, .tr-chart .b:focus::after {
+    content: attr(data-tip); position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+    white-space: pre; background: var(--body-fg, #333); color: var(--body-bg, #fff); font-size: 11px; line-height: 1.4;
+    padding: 5px 8px; border-radius: 5px; z-index: 5; pointer-events: none; }
+  .tr-chart .b:first-child:hover::after { left: 0; transform: none; }
+  .tr-chart .b:last-child:hover::after { left: auto; right: 0; transform: none; }
+  .tr-chart .max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--tr-muted); }
+  .tr-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--tr-muted); margin-top: 4px; }
+  .tr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 0 18px; }
+  .tr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tr-table th { text-align: left; font-weight: 600; color: var(--tr-muted); font-size: 11px; padding: 4px 6px; border-bottom: 1px solid var(--tr-line); background: none; }
+  .tr-table td { padding: 5px 6px; border-bottom: 1px solid var(--tr-line); vertical-align: middle; }
+  .tr-table tr:last-child td { border-bottom: 0; }
+  .tr-table .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; width: 1%; }
+  .tr-table .lbl { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tr-table .bar { width: 30%; min-width: 60px; }
+  .tr-table .bar span { display: block; height: 8px; border-radius: 4px; background: var(--tr-bar); opacity: .75; }
+  .tr-bad { color: var(--error-fg, #ba2121); font-weight: 600; }
+  .tr-empty { color: var(--tr-muted); padding: 8px 0; }
+  .tr details summary { cursor: pointer; font-size: 12px; color: var(--tr-muted); margin-top: 8px; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">{% translate 'Home' %}</a> › <a href="{% url 'admin:app_list' app_label='traffic' %}">Traffic</a> › Traffic dashboard{% if tenant_name %} › {{ tenant_name }}{% endif %}</div>
+{% endblock %}
+
+{% block content %}
+<div class="tr">
+  <form class="tr-filters" method="get">
+    <label>Workspace
+      <select name="tenant" onchange="this.form.submit()">
+        <option value="">Whole platform</option>
+        <option value="{{ platform }}"{% if tenant == platform %} selected{% endif %}>Platform (no workspace)</option>
+        {% for pk, name in tenants %}<option value="{{ pk }}"{% if tenant == pk|stringformat:"s" %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Period
+      <select name="period" onchange="this.form.submit()">
+        {% for value, label in periods %}<option value="{{ value }}"{% if value == period %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Visitors
+      <select name="audience" onchange="this.form.submit()">
+        {% for value, label in audiences %}<option value="{{ value }}"{% if value == audience %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <noscript><input type="submit" value="Show"></noscript>
+    <a class="tr-browse" href="{{ log_url }}{{ log_filter }}">Browse these requests &rarr;</a>
+  </form>
+
+  {% with t=data.totals %}
+  <div class="tr-tiles">
+    <div class="tr-tile"><div class="k">Requests</div><div class="v">{{ t.requests }}</div></div>
+    <div class="tr-tile"><div class="k">Unique visitors</div><div class="v">{{ t.visitors }}</div><div class="s">per day, without cookies</div></div>
+    <div class="tr-tile"><div class="k">IP addresses</div><div class="v">{{ t.ips }}</div></div>
+    <div class="tr-tile"><div class="k">Signed-in users</div><div class="v">{{ t.signed_in }}</div></div>
+    <div class="tr-tile"><div class="k">HTTPS</div><div class="v">{% if t.https_pct is not None %}{{ t.https_pct }}%{% else %}–{% endif %}</div><div class="s">{{ t.https }} of {{ t.requests }} requests</div></div>
+    <div class="tr-tile"><div class="k">Server errors (5xx)</div><div class="v{% if t.server_errors %} tr-bad{% endif %}">{{ t.server_errors }}</div><div class="s">{% if t.server_error_pct is not None %}{{ t.server_error_pct }}% of requests{% endif %}</div></div>
+    <div class="tr-tile"><div class="k">Client errors (4xx)</div><div class="v">{{ t.client_errors }}</div><div class="s">{% if t.client_error_pct is not None %}{{ t.client_error_pct }}%: not found, not allowed …{% endif %}</div></div>
+    <div class="tr-tile"><div class="k">Median response</div><div class="v">{% if t.median_ms is not None %}{{ t.median_ms }} ms{% else %}–{% endif %}</div><div class="s">until the response starts</div></div>
+    <div class="tr-tile"><div class="k">Bots</div><div class="v">{% if t.bot_pct is not None %}{{ t.bot_pct }}%{% else %}–{% endif %}</div><div class="s">{{ t.bots }} requests</div></div>
+  </div>
+  {% endwith %}
+
+  <section class="tr-card" aria-labelledby="tr-time-h">
+    <h2 id="tr-time-h">Requests per {% if hourly %}hour{% else %}day{% endif %}<span class="tr-note">hover a bar for requests and visitors</span></h2>
+    {% with last=data.series|last first=data.series|first %}
+    <div class="tr-chart" role="img" aria-label="Requests per {% if hourly %}hour{% else %}day{% endif %}, {{ first.label }} to {{ last.label }}. The table below has the figures.">
+      {% for b in data.series %}<span class="b" tabindex="0" data-tip="{{ b.label }}&#10;{{ b.requests }} requests&#10;{{ b.visitors }} visitors"><i style="height: {{ b.height }}%"></i></span>{% endfor %}
+    </div>
+    <div class="tr-axis"><span>{{ first.label }}</span><span>{{ last.label }}</span></div>
+    {% endwith %}
+    <details><summary>Show as a table</summary>
+      <table class="tr-table"><thead><tr><th>{% if hourly %}Hour{% else %}Day{% endif %}</th><th class="n">Requests</th><th class="n">Visitors</th></tr></thead>
+        <tbody>{% for b in data.series %}<tr><td>{{ b.label }}</td><td class="n">{{ b.requests }}</td><td class="n">{{ b.visitors }}</td></tr>{% endfor %}</tbody></table>
+    </details>
+  </section>
+
+  {% if not tenant %}
+  <section class="tr-card" aria-labelledby="tr-ws-h">
+    <h2 id="tr-ws-h">By workspace<span class="tr-note">open one to see its own traffic</span></h2>
+    {% if data.by_tenant %}
+    <table class="tr-table"><thead><tr><th>Workspace</th><th class="bar"></th><th class="n">Requests</th><th class="n">Visitors</th><th class="n">5xx</th></tr></thead>
+      <tbody>{% for r in data.by_tenant %}
+        <tr><td class="lbl"><a href="?tenant={{ r.filter }}&amp;period={{ period }}&amp;audience={{ audience }}">{{ r.name }}</a></td>
+          <td class="bar"><span style="width: {{ r.share }}%"></span></td><td class="n">{{ r.requests }}</td><td class="n">{{ r.visitors }}</td>
+          <td class="n{% if r.errors %} tr-bad{% endif %}">{{ r.errors }}</td></tr>
+      {% endfor %}</tbody></table>
+    {% else %}<p class="tr-empty">No requests in this period.</p>{% endif %}
+  </section>
+  {% endif %}
+
+  <div class="tr-grid">
+    {% include "admin/traffic/_top.html" with title="Pages" rows=data.pages field="path" errors=True %}
+    {% include "admin/traffic/_top.html" with title="IP addresses" rows=data.ips field="ip" %}
+    {% include "admin/traffic/_top.html" with title="Browsers and bots" rows=data.browsers field="browser" %}
+    {% include "admin/traffic/_top.html" with title="Operating systems" rows=data.systems field="os" %}
+    {% include "admin/traffic/_top.html" with title="Devices" rows=data.devices field="" %}
+    {% include "admin/traffic/_top.html" with title="Where visitors came from" rows=data.referrers field="referrer" %}
+    {% include "admin/traffic/_top.html" with title="Parts of the app" rows=data.areas field="" %}
+    <section class="tr-card" aria-labelledby="tr-status-h">
+      <h2 id="tr-status-h">Status codes</h2>
+      {% if data.statuses %}
+      <table class="tr-table"><thead><tr><th>Status</th><th class="n">Requests</th></tr></thead>
+        <tbody>{% for r in data.statuses %}<tr><td><a href="{{ log_url }}{{ log_filter }}&amp;status__exact={{ r.status }}"{% if r.status >= 500 %} class="tr-bad"{% endif %}>{{ r.status }}</a></td><td class="n">{{ r.requests }}</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="tr-empty">No requests in this period.</p>{% endif %}
+    </section>
+  </div>
+  <p class="help">Recording, IP addresses, how long logs are kept and which paths are skipped: <a href="{% url 'admin:siteconfig_platformsettings_changelist' %}">Platform settings › Traffic</a>.</p>
+</div>
+{% endblock %}

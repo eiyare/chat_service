@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     "llm",
     "widget",
     "siteconfig",
+    "traffic",
 ]
 
 MIDDLEWARE = [
@@ -115,6 +116,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Records each request for the admin Traffic dashboard (after auth, to know the user).
+    "traffic.middleware.TrafficMiddleware",
     # Every page requires login unless its view is marked @login_not_required
     # (the login page, and the public website widget).
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
