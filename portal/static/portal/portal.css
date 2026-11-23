@@ -165,3 +165,18 @@ body.portal {
   .cta .btn { flex: 1 1 100%; }
   .nav-link { display: none; }
 }
+
+/* Use-case cards: landing page, /use-cases/ and the "other use cases" strip */
+.uc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-bottom: 64px; }
+.uc-card { display: flex; flex-direction: column; gap: 8px; padding: 22px; text-decoration: none; color: var(--p-text) !important; transition: transform .15s, border-color .15s; }
+.uc-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--p-a) 50%, var(--p-border)); }
+.uc-card:focus-visible { outline: 2px solid var(--p-b); outline-offset: 3px; }
+.uc-card .icon { margin-bottom: 6px; }
+.uc-name { font-size: 12px; text-transform: uppercase; color: var(--p-b); }
+.uc-head { font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
+.uc-sum { color: var(--p-muted); font-size: 14px; line-height: 1.6; }
+.uc-go { margin-top: auto; padding-top: 8px; font-size: 14px; font-weight: 600; color: var(--p-a); }
+.uc-strip { margin: 56px 0 0; }
+.uc-strip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.uc-strip-head h2 { font-size: clamp(24px, 3.4vw, 32px); letter-spacing: -.02em; margin: 0; }
+.uc-strip-head a { font-size: 14px; font-weight: 600; }

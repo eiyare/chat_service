@@ -46,6 +46,16 @@
   </article>
 </section>
 
+{% if use_cases %}
+<section class="uc-strip" aria-labelledby="uc-strip-h">
+  <div class="uc-strip-head">
+    <h2 id="uc-strip-h">Built for how you work</h2>
+    <a href="{% url 'portal:use_cases' %}">All use cases &rarr;</a>
+  </div>
+  <div class="uc-grid">{% for u in use_cases %}{% include "portal/use_cases/_card.html" with u=u %}{% endfor %}</div>
+</section>
+{% endif %}
+
 <section class="steps" aria-label="How it works">
   <div class="step"><span class="num mono">01</span><h3>Create</h3><p>Sign up and name your chatbot. Free, in under a minute.</p></div>
   <div class="step"><span class="num mono">02</span><h3>Upload</h3><p>Add your {{ plan.types }} documents. They're indexed for search automatically.</p></div>

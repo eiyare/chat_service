@@ -44,7 +44,10 @@ def _plan():
 @login_not_required
 def home(request):
     if not request.user.is_authenticated:
-        return render(request, "portal/landing.html", {"plan": _plan(), "login_form": AuthenticationForm()})
+        from .use_cases import USE_CASES
+
+        return render(request, "portal/landing.html", {"plan": _plan(), "login_form": AuthenticationForm(),
+                                                       "use_cases": USE_CASES})
     return render(request, "portal/dashboard.html", {
         "workspaces": _workspaces(request.user), "slots": free_slots(request.user), "plan": _plan(),
     })
@@ -121,3 +124,24 @@ def create(request):
         messages.success(request, f"{tenant.chatbot_name} is ready. Upload the documents it should answer from.")
         return redirect(reverse("rag:home", kwargs={"tenant_slug": tenant.slug}))
     return render(request, "portal/create.html", {"form": form, "plan": _plan(), "slots": slots})
+
+
+@login_not_required
+def use_cases(request):
+    """Every use case, for visitors choosing where they fit."""
+    from .use_cases import USE_CASES
+
+    return render(request, "portal/use_cases/index.html", {"use_cases": USE_CASES, "plan": _plan()})
+
+
+@login_not_required
+def use_case(request, slug):
+    from django.http import Http404
+
+    from .use_cases import BY_SLUG, USE_CASES
+
+    case = BY_SLUG.get(slug)
+    if case is None:
+        raise Http404("No such use case")
+    others = [u for u in USE_CASES if u.slug != slug]
+    return render(request, case.template, {"case": case, "others": others, "plan": _plan()})

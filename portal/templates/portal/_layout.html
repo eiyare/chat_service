@@ -8,6 +8,7 @@
   <a class="logo" href="{% url 'portal:home' %}"><span class="logo-mark" aria-hidden="true"></span>{{ SITE_NAME }}</a>
   <nav class="nav-links" aria-label="Main">
     {% block nav %}
+      <a href="{% url 'portal:use_cases' %}" class="nav-link">Use cases</a>
       {% if user.is_authenticated %}
         {% if user.is_staff %}<a href="{% url 'admin:index' %}" class="nav-link">Platform admin</a>{% endif %}
         <span class="nav-user" title="Signed in">{{ user.get_full_name|default:user.get_username }}</span>

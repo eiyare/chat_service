@@ -1,0 +1,186 @@
+{% extends "portal/use_cases/_page.html" %}
+{% block title %}{{ SITE_NAME }} for Moodle · A course assistant for every student{% endblock %}
+
+{% block hero %}
+<section class="hero" aria-labelledby="uc-h">
+  <div class="hero-copy">
+    <p class="eyebrow mono">For schools on Moodle</p>
+    <h1 id="uc-h">Every student gets an answer.<br><span class="glow">Every teacher gets time back.</span></h1>
+    <p class="lead">A course assistant that lives inside Moodle. It answers students from their own course, knows their grades, completion and deadlines, and stays out of the way during quizzes. Your teachers stop answering the same questions, and your students stop waiting for replies.</p>
+    <div class="cta">
+      {% if plan.signup %}<a class="btn primary lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
+      <a class="btn ghost lg" href="#how">See how it works</a>
+    </div>
+    <ul class="trust">
+      <li>Moodle 4.0 and later</li>
+      <li>Installs as a standard plugin</li>
+      <li>Student data off until you switch it on</li>
+    </ul>
+  </div>
+  <figure class="figure card frame">
+    {% include "portal/use_cases/moodle/art_hero.html" %}
+    <figcaption>Illustrative example</figcaption>
+  </figure>
+</section>
+{% endblock %}
+
+{% block sections %}
+<section class="pains" aria-labelledby="pains-h">
+  <h2 id="pains-h">The answers are in Moodle. Students still can't find them.</h2>
+  <p class="lead">Dates, instructions, rubrics and grades are spread across sections, files, forums and the gradebook. So students ask their teachers, at all hours, about the same few things.</p>
+  <div class="pain-grid">
+    <div class="card pain"><q>When is the lab report due?</q><p>The date is in the assignment, the schedule and a forum post. Every class asks anyway, and teachers answer it again each time.</p></div>
+    <div class="card pain"><q>What do I need to pass?</q><p>Weights, completion rules and pass marks are spread across settings that students never see together, so they find out where they stand too late.</p></div>
+    <div class="card pain"><q>Can we trust AI near our courses?</q><p>Leaders worry about made-up answers, about cheating during assessments, and about student data. Generic chatbots give them good reason to.</p></div>
+  </div>
+</section>
+
+<div class="rows" id="how">
+  <section class="row" aria-labelledby="f1-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Answers from the course itself</p>
+      <h2 id="f1-h">Grounded in your course, with the source cited</h2>
+      <div class="problem"><span class="tag">The problem</span><p>Generic AI tools guess. They don't know your syllabus, your dates or your marking scheme, and they make things up with confidence.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>Every hour, the plugin sends each course you choose: the overview and schedule, activity descriptions, pages and books, files, and forum posts. On a course's pages, students get answers from that course only, each one citing where it came from. If the course doesn't say, the assistant says so instead of inventing an answer.</p></div>
+      <ul class="ticks">
+        <li>Only what every student can already see is sent. Hidden or restricted sections, private replies and quiz questions never are.</li>
+        <li>Only changes are re-sent, and deleted items are removed.</li>
+        <li>Each course keeps its own conversation, so Biology answers never mix with History.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_content.html" %}<figcaption>Illustrative example</figcaption></figure>
+  </section>
+
+  <section class="row flip" aria-labelledby="f2-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Personal progress</p>
+      <h2 id="f2-h">“What's my grade?” answered in seconds, not after an email</h2>
+      <div class="problem"><span class="tag">The problem</span><p>Students don't know where they stand until it's too late to act. Working out what's left and what they need means piecing together the gradebook, completion rules and due dates, so they email the teacher instead.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>When a student asks about their own progress, the assistant looks it up in Moodle as that student, possibly several things in turn, and answers in plain words.</p></div>
+      <ul class="ticks">
+        <li><strong>Grades:</strong> each item, the course total, weights, feedback, and how much of the course is still to come.</li>
+        <li><strong>Completion:</strong> the course's completion criteria, which ones are met, and what each activity still requires.</li>
+        <li><strong>Deadlines:</strong> what's left to do and when, including the student's own extensions, with anything overdue flagged.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_grades.html" %}<figcaption>Illustrative example</figcaption></figure>
+  </section>
+
+  <section class="row" aria-labelledby="f3-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Knows where the student is</p>
+      <h2 id="f3-h">“This module” means the one they're looking at</h2>
+      <div class="problem"><span class="tag">The problem</span><p>Students ask the way people talk: “what's this about?”, “and the second one?”, “yes, tell me more”. Chatbots that don't know the page or follow the conversation answer the wrong question.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>The assistant knows which course and activity the student has open, reads that page first, and follows the conversation, so follow-ups and short replies are understood.</p></div>
+      <ul class="ticks">
+        <li>Greets signed-in students by name.</li>
+        <li>Conversations follow students across devices.</li>
+        <li>Understands English and Nigerian Pidgin, and replies in kind.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_module.html" %}<figcaption>Illustrative example</figcaption></figure>
+  </section>
+
+  <section class="row flip" aria-labelledby="f4-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Assessment integrity</p>
+      <h2 id="f4-h">Present for learning. Absent during exams.</h2>
+      <div class="problem"><span class="tag">The problem</span><p>An assistant that is available during a quiz becomes a cheating tool, and one that appears everywhere becomes noise.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>You decide where the assistant appears: site home, dashboard, course pages, activities, quiz attempts, reports, admin pages, the login page. Untick <em>Quiz attempts</em> and it disappears while students answer quizzes, including in Safe Exam Browser.</p></div>
+      <ul class="ticks">
+        <li>Choose which courses take part: all visible courses, or a list.</li>
+        <li>Hide it on specific page types, such as every assignment page.</li>
+        <li>Quiz questions are never sent, whatever you choose.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_controls.html" %}<figcaption>Illustrative example</figcaption></figure>
+  </section>
+
+  <section class="row" aria-labelledby="f5-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Privacy by design</p>
+      <h2 id="f5-h">Student records stay under Moodle's rules</h2>
+      <div class="problem"><span class="tag">The problem</span><p>Schools are accountable for student data. Handing a third-party tool broad access to grades is a risk most leaders can't accept, and shouldn't.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>There is no admin key that can read everyone's grades. A lookup only works with the asking student's own sign-in, and Moodle runs it as that student, so it sees exactly what the student would see, and nothing more.</p></div>
+      <ul class="ticks">
+        <li>Student data lookups are off until you switch them on, in both Moodle and {{ SITE_NAME }}.</li>
+        <li>Hidden grades, and grades not yet released, stay hidden.</li>
+        <li>The assistant only connects to your own Moodle sites, and the plugin declares what it sends through Moodle's privacy API.</li>
+        <li>Looked-up records are used for the answer and aren't kept in {{ SITE_NAME }}'s reports.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_privacy.html" %}<figcaption>How a lookup is protected</figcaption></figure>
+  </section>
+
+  <section class="row flip" aria-labelledby="f6-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Transparency</p>
+      <h2 id="f6-h">See exactly how every answer was produced</h2>
+      <div class="problem"><span class="tag">The problem</span><p>When a parent or teacher questions an answer, “the AI said so” isn't good enough. Most tools are a black box.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>The Brain map shows each step behind every reply: how the question was understood, which course passages were considered, kept or dropped and why, what was looked up, what the model was sent, and how long each step took.</p></div>
+      <ul class="ticks">
+        <li>Open any conversation and follow its reasoning step by step.</li>
+        <li>Lookups are recorded as what was fetched, not the student's grades.</li>
+        <li>Every failure is recorded with its cause, so problems get fixed rather than guessed at.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_brainmap.html" %}<figcaption>Illustrative example</figcaption></figure>
+  </section>
+
+  <section class="row" aria-labelledby="f7-h">
+    <div class="row-copy">
+      <p class="eyebrow mono">Insight and cost control</p>
+      <h2 id="f7-h">Know what students ask, and what it costs</h2>
+      <div class="problem"><span class="tag">The problem</span><p>You can't improve what you can't see, and AI costs that grow without limit are hard to budget for.</p></div>
+      <div class="solution"><span class="tag">What it does</span><p>A performance report shows how many questions students ask, how many are answered, how fast, and what it costs. It also lists the questions it couldn't answer, so you know exactly which document or FAQ to add next.</p></div>
+      <ul class="ticks">
+        <li>A usage allowance per day or month keeps spending predictable.</li>
+        <li>Common questions can be answered instantly from FAQs you write.</li>
+        <li>If the AI provider has a brief outage, the assistant retries automatically.</li>
+      </ul>
+    </div>
+    <figure class="figure card frame">{% include "portal/use_cases/moodle/art_perf.html" %}<figcaption>Illustrative example</figcaption></figure>
+  </section>
+</div>
+
+<section class="card leaders" aria-labelledby="leaders-h">
+  <h2 id="leaders-h" class="section-h2">What it means for your school</h2>
+  <div class="leader-grid">
+    <div class="leader"><h3>For principals</h3><p>Students get support at any hour, teachers get time back for teaching, and every answer can be traced back to its source.</p></div>
+    <div class="leader"><h3>For teachers</h3><p>Fewer repeat emails about dates and instructions. Nothing to set up per course: it reads what's already in Moodle.</p></div>
+    <div class="leader"><h3>For Moodle administrators</h3><p>A standard local plugin with no core changes. Site-wide switches for courses, pages and student data, and it uninstalls cleanly.</p></div>
+  </div>
+</section>
+
+<section class="setup" aria-labelledby="setup-h">
+  <h2 id="setup-h" class="section-h2">Live in an afternoon</h2>
+  <div class="steps">
+    <div class="step"><span class="num mono">01</span><h3>Create</h3><p>Create your assistant in {{ SITE_NAME }} and turn on the Moodle connection. You get a key and a shared code.</p></div>
+    <div class="step"><span class="num mono">02</span><h3>Install</h3><p>Upload the plugin in Moodle's plugin installer and paste in the key and code.</p></div>
+    <div class="step"><span class="num mono">03</span><h3>Choose</h3><p>Pick the courses, and where the assistant appears. Course content arrives within the hour.</p></div>
+    <div class="step"><span class="num mono">04</span><h3>Extend</h3><p>When you're ready, switch on grades, completion and deadlines for personal answers.</p></div>
+  </div>
+</section>
+
+<section class="faq" aria-labelledby="faq-h">
+  <h2 id="faq-h" class="section-h2">Questions schools ask</h2>
+  <details><summary>Will students use it to cheat?</summary><p>You can hide it on quiz attempt pages, including in Safe Exam Browser, and quiz questions are never sent to it. Outside quizzes it is built to answer from your course material, with sources, rather than as a general-purpose writing tool. Every conversation can be reviewed in the Brain map.</p></details>
+  <details><summary>What student data leaves Moodle?</summary><p>For greeting and conversations: the student's Moodle ID, name, and their questions. If you switch on student data: that student's own grades, completion and deadlines, looked up while they ask and used to answer them. Course content includes only what every student can already see. All of this is declared through Moodle's privacy API.</p></details>
+  <details><summary>Can it see a student's hidden grades, or another student's grades?</summary><p>No. Each lookup needs the asking student's own sign-in, and Moodle runs it as that student, so it gets exactly what they could see in their own grade report.</p></details>
+  <details><summary>What happens when it doesn't know?</summary><p>It says so, rather than guessing. Those questions appear in your performance report, so you can add the missing document or an FAQ.</p></details>
+  <details><summary>Which Moodle versions are supported?</summary><p>Moodle 4.0 and later. It installs as a standard local plugin through Moodle's plugin installer, with no changes to Moodle's core code or your theme.</p></details>
+  <details><summary>Do teachers need to set anything up?</summary><p>No. It reads what's already in each course. Teachers who keep dates and instructions in Moodle get better answers automatically.</p></details>
+  <details><summary>How is it priced?</summary><p>You can start free and try it with your own material. Usage allowances keep costs predictable as you roll it out to more courses.</p></details>
+</section>
+{% endblock %}
+
+{% block closing %}
+<section class="closing card" aria-labelledby="closing-h">
+  <h2 id="closing-h">Give every student a course assistant.</h2>
+  <p class="lead">Start free, connect a test course, and ask it the questions your students ask.</p>
+  <div class="cta">
+    {% if plan.signup %}<a class="btn primary lg" href="{% url 'portal:signup' %}">Get started free</a>{% endif %}
+    <a class="btn ghost lg" href="{% url 'portal:use_cases' %}">Other use cases</a>
+  </div>
+</section>
+{% endblock %}

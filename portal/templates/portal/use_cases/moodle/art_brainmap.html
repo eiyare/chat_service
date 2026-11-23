@@ -1,0 +1,28 @@
+<svg class="art" viewBox="0 0 560 360" role="img" aria-labelledby="art-brainmap-t">
+  <title id="art-brainmap-t">The Brain map for one reply: a timing bar, then each step in order (question received, question rewriting, document search, the model asking for the student's grades, the grade lookup, the model's answer and the reply), with what each step did and how long it took.</title>
+  <rect x="16" y="16" width="528" height="328" rx="14" class="f-s1"/>
+  <rect x="16.5" y="16.5" width="527" height="327" rx="14" class="s-line"/>
+  <text x="36" y="44" font-size="13" font-weight="700">Brain map · “What's my grade so far?”</text>
+  <rect x="36" y="58" width="488" height="6" rx="3" class="f-line"/>
+  <rect x="36" y="58" width="76" height="6" class="f-a"/>
+  <rect x="113" y="58" width="8" height="6" class="f-acc"/>
+  <rect x="122" y="58" width="108" height="6" class="f-a"/>
+  <rect x="231" y="58" width="32" height="6" class="f-ok"/>
+  <rect x="264" y="58" width="250" height="6" class="f-a"/>
+  <path d="M48 92 V 320" class="s-line" stroke-width="2"/>
+  <g font-size="11">
+    <circle cx="48" cy="92" r="6" class="f-line"/><text x="66" y="96" font-size="12" font-weight="600">Question received</text><text x="210" y="96" class="t-muted">What's my grade so far?</text>
+
+    <circle cx="48" cy="130" r="6" class="f-a"/><text x="66" y="134" font-size="12" font-weight="600">Question rewriting</text><text x="210" y="134" class="t-muted">Searching for “course grade”</text><text x="524" y="134" text-anchor="end" class="t-muted" font-size="10">420 ms</text>
+
+    <circle cx="48" cy="168" r="6" class="f-a"/><text x="66" y="172" font-size="12" font-weight="600">Document search</text><text x="210" y="172" class="t-muted">2 passages kept, 9 dropped</text><text x="524" y="172" text-anchor="end" class="t-muted" font-size="10">38 ms</text>
+
+    <circle cx="48" cy="206" r="6" class="f-a"/><text x="66" y="210" font-size="12" font-weight="600">Model, round 1</text><text x="210" y="210" class="t-muted">Asked for get_my_grades</text><text x="524" y="210" text-anchor="end" class="t-muted" font-size="10">610 ms</text>
+
+    <circle cx="48" cy="244" r="6" class="f-ok"/><text x="66" y="248" font-size="12" font-weight="600">Tool: my grades</text><text x="210" y="248" class="t-muted">5 grade items, course total included</text><text x="524" y="248" text-anchor="end" class="t-muted" font-size="10">180 ms</text>
+
+    <circle cx="48" cy="282" r="6" class="f-a"/><text x="66" y="286" font-size="12" font-weight="600">Model answer</text><text x="210" y="286" class="t-muted">Answered from the grade report</text><text x="524" y="286" text-anchor="end" class="t-muted" font-size="10">1.4 s</text>
+
+    <circle cx="48" cy="320" r="6" class="f-ok"/><text x="66" y="324" font-size="12" font-weight="600">Reply</text><text x="210" y="324" class="t-muted">Answered</text><text x="524" y="324" text-anchor="end" class="t-muted" font-size="10">2.7 s</text>
+  </g>
+</svg>

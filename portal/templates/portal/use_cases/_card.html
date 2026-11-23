@@ -1,0 +1,7 @@
+<a class="card uc-card" href="{% url 'portal:use_case' slug=u.slug %}">
+  <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="{{ u.icon }}"/></svg></span>
+  <span class="uc-name mono">{{ u.name }}</span>
+  <span class="uc-head">{{ u.headline }}</span>
+  <span class="uc-sum">{{ u.summary }}</span>
+  <span class="uc-go">See how it works <span aria-hidden="true">&rarr;</span></span>
+</a>

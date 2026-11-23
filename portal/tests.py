@@ -132,3 +132,47 @@ class ChatbotNameTests(TestCase):
     def test_custom_prompt_placeholder(self):
         self.t.chatbot_name = "Bola"
         self.assertEqual(grounding_prompt(conf.static(self.t)), "I am Bola of Acme. NOPE")
+
+
+class UseCasePageTests(TestCase):
+    """Public use-case pages, driven by portal/use_cases.py."""
+
+    def setUp(self):
+        self.client.logout()  # these pages are for visitors
+
+    def test_index_lists_every_use_case(self):
+        from .use_cases import USE_CASES
+
+        resp = self.client.get("/use-cases/")
+        self.assertEqual(resp.status_code, 200)
+        for case in USE_CASES:
+            self.assertContains(resp, case.headline)
+            self.assertContains(resp, f'href="/use-cases/{case.slug}/"')
+
+    def test_every_use_case_page_renders(self):
+        from .use_cases import USE_CASES
+
+        for case in USE_CASES:
+            with self.subTest(case.slug):
+                resp = self.client.get(f"/use-cases/{case.slug}/")
+                self.assertEqual(resp.status_code, 200)
+                self.assertContains(resp, case.name)  # breadcrumb
+                self.assertContains(resp, "portal/usecase.css")
+
+    def test_moodle_page_ties_each_feature_to_a_problem(self):
+        resp = self.client.get("/use-cases/moodle/")
+        content = resp.content.decode()
+        self.assertEqual(content.count('class="problem"'), content.count('class="solution"'))
+        self.assertGreaterEqual(content.count('class="problem"'), 6)
+        self.assertEqual(content.count("<svg class=\"art\""), 8)
+        self.assertEqual(content.count("<svg class=\"art\""), content.count("<title id=\"art-"))  # every image described
+        for text in ("Quiz attempts", "Brain map", "Moodle 4.0", "What's my grade so far?"):
+            self.assertContains(resp, text)
+
+    def test_unknown_use_case_404(self):
+        self.assertEqual(self.client.get("/use-cases/nope/").status_code, 404)
+
+    def test_landing_and_nav_link_to_use_cases(self):
+        resp = self.client.get("/")
+        self.assertContains(resp, 'href="/use-cases/moodle/"')
+        self.assertContains(resp, 'href="/use-cases/" class="nav-link"')

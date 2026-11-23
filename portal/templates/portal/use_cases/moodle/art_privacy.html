@@ -1,0 +1,39 @@
+<svg class="art" viewBox="0 0 560 300" role="img" aria-labelledby="art-privacy-t">
+  <title id="art-privacy-t">How a grade lookup is protected: the signed-in student's own token goes to Moodle, Moodle runs the lookup as that student so hidden grades stay hidden, and only that student's records go to the assistant. Student data is off by default, lookups only go to your own allowed sites, and the plugin declares its data to Moodle's privacy API.</title>
+  <text x="280" y="30" font-size="12" class="t-muted" text-anchor="middle">How a grade lookup is protected</text>
+  <g font-size="12">
+    <rect x="20" y="52" width="150" height="150" rx="14" class="f-s2"/>
+    <rect x="20.5" y="52.5" width="149" height="149" rx="14" class="s-line"/>
+    <circle cx="95" cy="88" r="13" class="s-acc" stroke-width="2"/>
+    <path d="M73 124 c4-14 40-14 44 0" class="s-acc" stroke-width="2"/>
+    <text x="95" y="152" font-weight="700" text-anchor="middle">Signed-in student</text>
+    <text x="95" y="170" font-size="10.5" class="t-muted" text-anchor="middle">asks on a course page</text>
+    <text x="95" y="186" font-size="10.5" class="t-muted" text-anchor="middle">with their own sign-in</text>
+
+    <rect x="205" y="52" width="150" height="150" rx="14" class="f-s2"/>
+    <rect x="205.5" y="52.5" width="149" height="149" rx="14" class="s-acc" stroke-width="1.5"/>
+    <path d="M280 72 l22 9 v16 c0 14-10 23-22 27 c-12-4-22-13-22-27 v-16 z" class="s-acc" stroke-width="2"/>
+    <path d="M271 98 l7 7 12-13" class="s-acc" stroke-width="2"/>
+    <text x="280" y="152" font-weight="700" text-anchor="middle">Moodle checks</text>
+    <text x="280" y="170" font-size="10" class="t-muted" text-anchor="middle">runs as the student:</text>
+    <text x="280" y="186" font-size="10" class="t-muted" text-anchor="middle">hidden grades stay hidden</text>
+
+    <rect x="390" y="52" width="150" height="150" rx="14" class="f-s2"/>
+    <rect x="390.5" y="52.5" width="149" height="149" rx="14" class="s-line"/>
+    <rect x="446" y="74" width="38" height="30" rx="9" class="s-a" stroke-width="2"/>
+    <path d="M455 104 l-6 10 14-10" class="s-a" stroke-width="2"/>
+    <circle cx="458" cy="89" r="2.5" class="f-a"/><circle cx="465" cy="89" r="2.5" class="f-a"/><circle cx="472" cy="89" r="2.5" class="f-a"/>
+    <text x="465" y="152" font-weight="700" text-anchor="middle">The assistant</text>
+    <text x="465" y="170" font-size="10" class="t-muted" text-anchor="middle">gets only this student's</text>
+    <text x="465" y="186" font-size="10" class="t-muted" text-anchor="middle">records, for this answer</text>
+  </g>
+  <g stroke-width="2">
+    <path d="M172 127 H 200" class="s-acc"/><path d="M194 121 l6 6 -6 6" class="s-acc"/>
+    <path d="M357 127 H 385" class="s-acc"/><path d="M379 121 l6 6 -6 6" class="s-acc"/>
+  </g>
+  <g font-size="11">
+    <rect x="20" y="228" width="150" height="28" rx="14" class="f-soft"/><text x="95" y="246" text-anchor="middle">Off by default</text>
+    <rect x="205" y="228" width="150" height="28" rx="14" class="f-soft"/><text x="280" y="246" text-anchor="middle">Your own sites only</text>
+    <rect x="390" y="228" width="150" height="28" rx="14" class="f-soft"/><text x="465" y="246" text-anchor="middle">In Moodle's privacy API</text>
+  </g>
+</svg>

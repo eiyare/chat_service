@@ -1,0 +1,14 @@
+{% extends "portal/_layout.html" %}
+{% load static %}
+{% block title %}Use cases · {{ SITE_NAME }}{% endblock %}
+{% block extra_head %}{{ block.super }}<link rel="stylesheet" href="{% static 'portal/usecase.css' %}">{% endblock %}
+{% block main %}
+<div class="uc">
+  <section class="uc-intro">
+    <p class="eyebrow mono">Use cases</p>
+    <h1>One assistant platform, <span class="glow">shaped to your work.</span></h1>
+    <p class="lead">{{ SITE_NAME }} answers questions from your own material, with sources, and says so when it doesn't know. Here's how it fits specific teams and tools.</p>
+  </section>
+  <div class="uc-grid">{% for u in use_cases %}{% include "portal/use_cases/_card.html" with u=u %}{% endfor %}</div>
+</div>
+{% endblock %}
