@@ -136,7 +136,7 @@ class PlatformSettingsAdmin(admin.ModelAdmin):
             self.message_user(request, "No SMTP server is set, so the test email was only written to the server "
                                        "log. Fill in Email (SMTP) and save first.", messages.WARNING)
         try:
-            EmailMessage(f"Test email from {settings.SITE_NAME}",
+            EmailMessage(f"Test email from {cfg.site_name}",
                          f"This test email was sent from Django admin by {request.user.get_username()}, using the "
                          f"SMTP server {cfg.smtp_host or '(none)'}:{cfg.smtp_port}.\n\nIf you can read it, email "
                          f"is working.", mail.sender(cfg), [to]).send(fail_silently=False)

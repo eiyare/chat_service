@@ -78,14 +78,15 @@ def provider_of(model: str) -> str:
         return ""
 
 
-def resolve(model: str, config: Config) -> tuple[str, dict]:
+def resolve(model: str, config: Config, timeout: float | None = None) -> tuple[str, dict]:
     """Map a model ID to (LiteLLM model string, call kwargs).
 
     Admin models use their provider connection (see llm/config.py). Environment
     models: common settings -> the provider's LLM_PROVIDERS entry -> the
     model's LLM_MODEL_PARAMS; an entry with "litellm_provider" is an alias.
     """
-    kwargs = {"timeout": settings.LLM_TIMEOUT}
+    # ``timeout``: the admin setting "Model timeout" (callers pass it); else the code default.
+    kwargs = {"timeout": settings.LLM_TIMEOUT if timeout is None else timeout}
     if settings.LLM_NUM_RETRIES:
         kwargs["num_retries"] = settings.LLM_NUM_RETRIES
     if model in config.routes:  # configured in the admin
@@ -176,7 +177,11 @@ async def stream_chat(
     admin setting). Once text has been streamed a failure can't be retried: the LLMError
     then has ``partial`` set. Raises LLMError on failure.
     """
-    retries = settings.LLM_RETRIES if retries is None else max(int(retries), 0)
+    if retries is None:
+        from siteconfig import conf
+
+        retries = (await conf.aget()).provider_retries
+    retries = max(int(retries), 0)
     attempt = 0
     while True:
         attempt += 1
@@ -198,7 +203,9 @@ async def stream_chat(
 
 async def _stream_once(model, messages, temperature, max_tokens, tools=None):
     """One streamed completion (see stream_chat)."""
-    litellm_model, params = resolve(model, await aget_config())
+    from siteconfig import conf
+
+    litellm_model, params = resolve(model, await aget_config(), (await conf.aget()).llm_timeout)
     if temperature is None:
         temperature = settings.LLM_TEMPERATURE
     if temperature is not None:
@@ -277,8 +284,12 @@ async def embed(texts: list[str], purpose: str = "document", config: Config | No
     model = config.embed_model
     if not model:
         raise LLMError("No embedding model configured (set one in the admin or LLM_EMBED_MODEL)")
-    litellm_model, params = resolve(model, config)
+    from siteconfig import conf
+
+    platform = await conf.aget()
+    litellm_model, params = resolve(model, config, platform.llm_timeout)
     params = {**params, **(config.embed_query_params if purpose == "query" else config.embed_document_params)}
+    retries = platform.provider_retries
     attempt = 0
     while True:
         attempt += 1
@@ -287,7 +298,7 @@ async def embed(texts: list[str], purpose: str = "document", config: Config | No
             break
         except Exception as exc:
             error = _error(exc, model)
-            if not error.retryable or attempt > settings.LLM_RETRIES:
+            if not error.retryable or attempt > retries:
                 raise _give_up(error, model, attempt) from exc
             await _pause(attempt, error, model)
     data = sorted(response.data, key=lambda d: d["index"])

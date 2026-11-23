@@ -6,7 +6,6 @@ never lost: if the email can't be sent, staff still find it under Portal > Enqui
 """
 import logging
 
-from django.conf import settings
 from django.core.mail import EmailMessage
 from django.urls import reverse
 
@@ -24,7 +23,7 @@ def _one_line(text: str, limit: int = 80) -> str:
 
 def email_body(enquiry: Enquiry, admin_url: str = "") -> str:
     lines = [
-        f"{enquiry.get_kind_display()} from the {settings.SITE_NAME} website",
+        f"{enquiry.get_kind_display()} from the {conf.get().site_name} website",
         "",
         f"Name:          {enquiry.name}",
         f"Email:         {enquiry.email}",
@@ -56,7 +55,7 @@ def deliver(enquiry: Enquiry, request=None) -> None:
         admin_url = request.build_absolute_uri(reverse("admin:portal_enquiry_change", args=[enquiry.pk]))
     who = _one_line(enquiry.name) + (f" ({_one_line(enquiry.organisation)})" if enquiry.organisation else "")
     message = EmailMessage(
-        subject=f"[{settings.SITE_NAME}] {enquiry.get_kind_display()}: {who}",
+        subject=f"[{conf.get().site_name}] {enquiry.get_kind_display()}: {who}",
         body=email_body(enquiry, admin_url),
         from_email=sender(),
         to=[to],

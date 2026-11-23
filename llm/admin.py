@@ -238,7 +238,9 @@ class LLMModelAdmin(admin.ModelAdmin):
 
 async def _probe(obj: LLMModel) -> str:
     """Call the model through its provider connection, even if it is disabled."""
-    params = {"timeout": settings.LLM_TIMEOUT, **obj.provider.kwargs(), **(obj.params or {})}
+    from siteconfig import conf
+
+    params = {"timeout": (await conf.aget()).llm_timeout, **obj.provider.kwargs(), **(obj.params or {})}
     started = time.monotonic()
     try:
         if obj.kind == LLMModel.Kind.EMBEDDING:

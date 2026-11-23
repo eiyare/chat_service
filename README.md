@@ -23,14 +23,19 @@ Behaviour is configured in the Django admin, not `.env`:
 - **Per workspace** (*Tenants* > a workspace): its chatbot name, upload and
   token limits, and *Settings overrides* for the wording, persona and
   answering settings. Blank overrides use the platform value.
-- Resolution: workspace override -> platform setting -> `.env` value (which
-  only seeds the platform settings on first run). Changes apply without a
-  restart (cached per process for `SITECONFIG_CACHE_SECONDS`, default 30).
+- Resolution: workspace override -> platform setting (Django admin). The
+  defaults in `saas_chat/settings.py` only fill a new database; none of these
+  are read from `.env`. Changes apply without a restart (cached per process for
+  30 seconds).
 - Elsewhere in the admin: LLM providers and models (with per-embedding-model
   relevance cut-offs), FAQs, website widgets, users and memberships.
 
-`.env` keeps secrets and infrastructure: `DJANGO_SECRET_KEY`, database, hosts,
-`LLM_ENCRYPTION_KEY`, provider credentials.
+`.env` only holds what Django needs before it can reach the database
+(`DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, database, hosts and CSRF origins,
+`LLM_ENCRYPTION_KEY`, static/media paths, HTTPS options, time zone, log level,
+`TENANT_URL_PREFIX`) and, for now, the LLM models and provider keys (also
+manageable in admin). Site name, model timeout and retries, email, contact,
+traffic and proxies are all Platform settings.
 
 ## Home page, sign-up and free chatbots
 
@@ -69,8 +74,8 @@ The assistant keeps that persona: messages that are only small talk (a
 greeting or its name, "who are you?", "are you Tosin?", thanks, "what can you
 do?", goodbye) get a persona reply without search or a model call
 (`CHAT_GREETING_REPLY`, `CHAT_IDENTITY_REPLY`, `CHAT_THANKS_REPLY`,
-`CHAT_HELP_REPLY`, `CHAT_GOODBYE_REPLY`; `{assistant}`/`{workspace}`
-placeholders; `CHAT_SMALL_TALK=0` turns it off). When a question addresses it
+`CHAT_HELP_REPLY`, `CHAT_GOODBYE_REPLY` in Platform settings; `{assistant}`/`{workspace}`
+placeholders; the *Small talk* setting turns it off). When a question addresses it
 by name ("Hi Tosin, how much leave do I get?"), the name and greeting are
 removed before FAQ matching and document search, while the model still sees
 the whole message. The system prompt tells the model its name and that
@@ -476,7 +481,7 @@ Models and providers can be managed in two places:
   An entry with `"litellm_provider"` is a named alias, e.g. a second Ollama
   server: `{"gpu_box": {"litellm_provider": "ollama_chat", "api_base": "http://gpu-box:11434"}}`,
   then models `gpu_box/<name>`. `LLM_MODEL_PARAMS` (JSON) sets per-model options.
-- Common: `LLM_TIMEOUT`, `LLM_NUM_RETRIES`, `LLM_TEMPERATURE`.
+- Timeout and retries: Platform settings → Answering (*Model timeout*, *Retries after a provider error*).
 
 ### Provider errors and debugging
 
@@ -527,28 +532,18 @@ defaults. Application code reads `django.conf.settings`, never `os.environ`.
 | `DJANGO_SECRET_KEY`       | insecure dev value       | **Required** when `DJANGO_DEBUG=0`        |
 | `DJANGO_DEBUG`            | `1`                      | Set to `0` in production                  |
 | `DJANGO_ALLOWED_HOSTS`    | `localhost,127.0.0.1`    | Comma-separated                           |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | (empty)              | e.g. `https://saaschat.tech`              |
 | `DJANGO_DB_*`             | SQLite in project root   | Engine, name, user, password, host, port  |
+| `DJANGO_MEDIA_ROOT`       | `media/` in project root | Where uploaded documents are stored       |
+| `LLM_ENCRYPTION_KEY`      | derived from secret key  | Encrypts secrets saved in admin           |
 | `LLM_CHAT_MODELS`         | (none)                   | Allowlist of LiteLLM chat model strings   |
 | `LLM_DEFAULT_CHAT_MODEL`  | first allowlisted model  | Preselected model                         |
 | `LLM_EMBED_MODEL`         | (none)                   | LiteLLM embedding model string            |
 | `<PROVIDER>_*`            | (empty)                  | Per-provider keys/endpoints; see above    |
-| `LLM_TIMEOUT`             | `300`                    | Seconds before a model call is abandoned  |
 | `RAG_QUERY_PREFIX` / `RAG_DOCUMENT_PREFIX` | (empty) | Instruction prefixes some embedding models need |
-| `RAG_MIN_SCORE`           | `0.5`                    | Relevance cut-off; calibrate per model    |
-| `RAG_MIN_TERM_OVERLAP`    | `0.5`                    | Share of question terms passages must contain; 0 disables |
-| `RAG_KEYWORD_MIN_COVERAGE` | `0.75`                  | Keyword route: share of question terms a chunk must contain; 0 disables |
-| `RAG_TOP_K`               | `5`                      | Passages given to the model               |
-| `RAG_TEMPERATURE`         | `0.1`                    | Temperature for grounded answers          |
-| `RAG_SYSTEM_PROMPT`       | strict grounding prompt  | Supports `{workspace}`, `{no_answer}`     |
-| `RAG_NO_ANSWER_MESSAGE`   | "I couldn't find that…"  | Reply when documents don't cover it       |
-| `CHAT_HISTORY_LIMIT`      | `20`                     | Previous messages sent as context         |
-| `CHAT_MAX_MESSAGE_CHARS`  | `8000`                   | Maximum length of one user message        |
-| `DJANGO_MEDIA_ROOT`       | `media/` in project root | Where uploaded documents are stored       |
-| `RAG_CHUNK_SIZE`          | `1000`                   | Characters per chunk                      |
-| `RAG_CHUNK_OVERLAP`       | `150`                    | Characters shared by neighbouring chunks  |
-| `RAG_MAX_UPLOAD_MB`       | `5`                      | Default largest file (per-workspace override) |
-| `RAG_MAX_DOCUMENTS`       | `3`                      | Default documents per workspace (override) |
-| `RAG_ALLOWED_EXTENSIONS`  | `txt,pdf`                | Default file types (override)             |
+
+Everything else (wording, prompts, thresholds, limits, chunking, site name,
+timeouts, email, traffic) is in Django admin → Platform settings.
 
 ## Known gaps
 

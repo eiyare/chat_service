@@ -1,5 +1,6 @@
-from django.conf import settings
 from django.utils.functional import SimpleLazyObject
+
+from siteconfig import conf
 
 
 def site(request):
@@ -8,4 +9,4 @@ def site(request):
         from portal.views import _plan
         return _plan()
 
-    return {"SITE_NAME": settings.SITE_NAME, "plan": SimpleLazyObject(plan)}
+    return {"SITE_NAME": conf.get().site_name, "plan": SimpleLazyObject(plan)}

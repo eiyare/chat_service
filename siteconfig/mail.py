@@ -24,8 +24,8 @@ def sender(cfg=None) -> str:
         return cfg.email_from.strip()
     username = cfg.smtp_username.strip()
     if "@" in parseaddr(username)[1]:
-        return f"{settings.SITE_NAME} <{username}>"
-    return settings.DEFAULT_FROM_EMAIL
+        return f"{cfg.site_name} <{username}>"
+    return f"{cfg.site_name} <noreply@localhost>"
 
 
 def configured(cfg=None) -> bool:

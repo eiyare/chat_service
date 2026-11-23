@@ -50,7 +50,7 @@ async def _sidebar(tenant, user):
     qs = Conversation.objects.filter(
         tenant=tenant, source=Conversation.Source.APP, user=user
     ).only("id", "title", "updated_at")
-    return [c async for c in qs[: settings.CHAT_SIDEBAR_LIMIT]]
+    return [c async for c in qs[: (await conf.aget()).sidebar_limit]]
 
 
 async def _render_chat(request, conversation=None):

@@ -48,7 +48,7 @@ def _pidgin(key):
 
 WORDING, PERSONA, PIDGIN, ANSWERING, SEARCH, DOCUMENTS, DEFAULTS, SIGNUP, CONTACT, EMAIL, TRAFFIC = (
     "Assistant wording", "Persona (English)", "Persona (Nigerian Pidgin)", "Answering",
-    "Search and FAQs", "Document processing", "Workspace defaults", "Sign-up", "Contact", "Email (SMTP)",
+    "Search and FAQs", "Document processing", "Workspace defaults", "Site and sign-up", "Contact", "Email (SMTP)",
     "Traffic",
 )
 PLACEHOLDERS = "Placeholders: {assistant} = chatbot name, {workspace} = workspace name."
@@ -98,6 +98,9 @@ SPECS = [
          "Most document passages given to the model for one question.", 1, 50),
     Spec("history_limit", INT, ANSWERING, "Conversation history", _s("CHAT_HISTORY_LIMIT"), True,
          "Most earlier messages sent to the model as context.", 0, 200),
+    Spec("llm_timeout", INT, ANSWERING, "Model timeout (seconds)", lambda: int(settings.LLM_TIMEOUT), min=5, max=1800,
+         help="How long to wait for a model to start answering (or for an embedding) before giving up. Slow "
+              "local models may need longer."),
     Spec("max_message_chars", INT, ANSWERING, "Max question length", _s("CHAT_MAX_MESSAGE_CHARS"), True,
          "Characters.", 1, 100000),
     Spec("rewrite_queries", BOOL, ANSWERING, "Rewrite questions for search", _s("RAG_REWRITE_QUERIES"), True,
@@ -148,6 +151,10 @@ SPECS = [
     Spec("default_max_output_tokens", INT, DEFAULTS, "Max output tokens per answer", _s("CHAT_MAX_OUTPUT_TOKENS"),
          help="0 = model default.", min=0),
     # --- Sign-up (global) ---------------------------------------------------------------------------
+    Spec("site_name", LINE, SIGNUP, "Site name", _s("SITE_NAME"),
+         help="The platform's name on the public site, in page titles and in emails."),
+    Spec("sidebar_limit", INT, SIGNUP, "Chats listed in the sidebar", _s("CHAT_SIDEBAR_LIMIT"), min=5, max=500,
+         help="How many of a user's recent chats the workspace chat lists."),
     Spec("allow_signup", BOOL, SIGNUP, "Allow sign-up", _s("PORTAL_SIGNUP_ENABLED"),
          help="Anyone can create an account from the home page and create free chatbots."),
     Spec("free_chatbots_per_account", INT, SIGNUP, "Free chatbots per account", _s("PORTAL_FREE_CHATBOTS_PER_ACCOUNT"),

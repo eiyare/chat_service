@@ -19,13 +19,15 @@ from .spec import BOOL, CHOICE, GROUNDING, LINE, PERIOD, SECRET, SPECS, TEXT, WO
 
 _lock = threading.Lock()
 _platform = None        # (expires, values dict)
+_last_platform = None   # the last values loaded, kept after they expire (see get())
 _workspaces = {}        # tenant_id -> (expires, overrides dict)
 
 
 def invalidate(**kwargs):
-    global _platform
+    global _platform, _last_platform
     with _lock:
         _platform = None
+        _last_platform = None  # saved settings must never be shadowed by older ones
         _workspaces.clear()
 
 
@@ -90,17 +92,20 @@ def _resolve(platform: dict, overrides: dict, tenant):
 
 
 def get(tenant=None):
-    """Sync access. Inside an event loop with a cold cache it falls back to the
-    .env defaults rather than block (async code should use aget())."""
-    global _platform
+    """Sync access. Inside an event loop with a cold cache it can't query the database, so it
+    uses the last values loaded (or the code defaults before any load); async code should use
+    aget()."""
+    global _platform, _last_platform
     with _lock:
         platform = _fresh(_platform)
         overrides = _fresh(_workspaces.get(getattr(tenant, "pk", None))) if tenant else (0, {})
     if platform is None or overrides is None:
         if _in_event_loop():
-            return _resolve(platform[1] if platform else defaults(), overrides[1] if overrides else {}, tenant)
+            fallback = platform[1] if platform else (_last_platform or defaults())
+            return _resolve(fallback, overrides[1] if overrides else {}, tenant)
         if platform is None:
             platform = (time.monotonic() + _ttl(), _load_platform_sync())
+            _last_platform = platform[1]
             with _lock:
                 _platform = platform if _ttl() > 0 else None
         if overrides is None:
@@ -113,7 +118,7 @@ def get(tenant=None):
 
 async def aget(tenant=None):
     """Async access (loads from the database when the cache is cold)."""
-    global _platform
+    global _platform, _last_platform
     from asgiref.sync import sync_to_async
 
     with _lock:
@@ -121,6 +126,7 @@ async def aget(tenant=None):
         overrides = _fresh(_workspaces.get(getattr(tenant, "pk", None))) if tenant else (0, {})
     if platform is None:
         platform = (time.monotonic() + _ttl(), await sync_to_async(_load_platform_sync)())
+        _last_platform = platform[1]
         with _lock:
             _platform = platform if _ttl() > 0 else None
     if overrides is None:

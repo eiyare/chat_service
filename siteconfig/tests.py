@@ -208,3 +208,62 @@ class EmailSettingsTests(TestCase):
             resp = self.client.post("/admin/siteconfig/platformsettings/test-email/", follow=True)
         self.assertContains(resp, "The test email to helpdesk@example.com failed: OSError: 535 Authentication failed")
         self.assertEqual(self.client.get("/admin/siteconfig/platformsettings/test-email/").status_code, 405)
+
+
+class MovedFromEnvTests(TestCase):
+    """Settings that used to be read from .env now come from Django admin."""
+
+    def test_site_name_and_sidebar_from_admin(self):
+        platform(site_name="Ei Learn", sidebar_limit=7)
+        conf.invalidate()
+        self.client.logout()
+        self.assertContains(self.client.get("/use-cases/"), "Ei Learn")
+        self.assertEqual(conf.get().sidebar_limit, 7)
+
+    def test_model_timeout_from_admin_reaches_the_call(self):
+        calls = []
+
+        async def acompletion(**kwargs):
+            calls.append(kwargs)
+
+            async def gen():
+                return
+                yield
+            return gen()
+
+        platform(llm_timeout=42)
+        conf.invalidate()
+        with override_settings(LLM_CHAT_MODELS=["openai/x"], LLM_DEFAULT_CHAT_MODEL="openai/x",
+                               LLM_CONFIG_CACHE_SECONDS=0), mock.patch("litellm.acompletion", acompletion):
+            llm.invalidate()
+            async def run():
+                return [e async for e in llm.stream_chat("openai/x", [])]
+
+            async_to_sync(run)()
+        self.assertEqual(calls[0]["timeout"], 42)
+
+    def test_migration_keeps_the_servers_env_values(self):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("siteconfig.migrations.0016_site_and_model_settings")
+        platform()
+        with mock.patch.dict("os.environ", {"SITE_NAME": "Ei Learn", "LLM_TIMEOUT": "120.0",
+                                            "CHAT_SIDEBAR_LIMIT": "not a number"}):
+            migration.from_env(apps, None)
+        row = PlatformSettings.objects.get(pk=1)
+        self.assertEqual((row.site_name, row.llm_timeout, row.sidebar_limit), ("Ei Learn", 120, 50))
+
+    def test_env_is_no_longer_read_for_admin_settings(self):
+        import ast
+
+        from django.conf import settings as dj
+
+        src = open(dj.BASE_DIR / "saas_chat" / "settings.py").read()
+        read = {n.args[0].value for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name) and n.func.id.startswith("env_") and n.args
+                and isinstance(n.args[0], ast.Constant)}
+        for name in ("SITE_NAME", "RAG_TOP_K", "RAG_NO_ANSWER_MESSAGE", "CHAT_TOKEN_ALLOWANCE", "LLM_TIMEOUT",
+                     "CHAT_SIDEBAR_LIMIT", "RAG_SYSTEM_PROMPT", "PORTAL_SIGNUP_ENABLED"):
+            self.assertNotIn(name, read)
