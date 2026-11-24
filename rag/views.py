@@ -17,7 +17,7 @@ from .models import Document, IndexingRun, embed_signature
 async def admin_home(request):
     tenant = request.tenant
     # Moodle course content is managed by the plugin, not here.
-    documents = [d async for d in Document.objects.filter(tenant=tenant, moodle_course_id__isnull=True)]
+    documents = [d async for d in Document.objects.filter(tenant=tenant, integration__isnull=True)]
     llm_config = await llm.aget_config()
     policy = tenant.upload_policy
     signature = embed_signature(llm_config)
@@ -267,8 +267,11 @@ async def brain_map(request):
     channel = request.GET.get("channel", "")
     if channel == "moodle":
         qs = qs.filter(source=Conversation.Source.WIDGET, visitor_id__startswith="moodle-")
+    elif channel == "apps":
+        qs = qs.filter(source=Conversation.Source.WIDGET, visitor_id__startswith="app.")
     elif channel == "widget":
-        qs = qs.filter(source=Conversation.Source.WIDGET).exclude(visitor_id__startswith="moodle-")
+        qs = qs.filter(source=Conversation.Source.WIDGET).exclude(visitor_id__startswith="moodle-").exclude(
+            visitor_id__startswith="app.")
     elif channel == "app":
         qs = qs.filter(source=Conversation.Source.APP)
     outcome = request.GET.get("outcome", "")
@@ -291,7 +294,7 @@ async def brain_map(request):
     return render(request, "rag/brain_map.html", {
         "tenant": tenant, "rows": rows, "total": total, "q": q, "channel": channel, "outcome": outcome,
         "page": page, "pages": pages, "prev": page - 1 if page > 1 else None, "next": page + 1 if page < pages else None,
-        "channels": [("", "All channels"), ("widget", "Website widget"), ("moodle", "Moodle"),
+        "channels": [("", "All channels"), ("widget", "Website widget"), ("moodle", "Moodle"), ("apps", "Other connected apps"),
                      ("app", "Workspace chat (yours)")],
         "outcomes": [("", "Any outcome"), ("answered", "Answered"), ("missed", "Not answered"),
                      ("failed", "Errors and limits")],

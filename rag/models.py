@@ -58,24 +58,27 @@ class Document(models.Model):
         null=True, blank=True, help_text="Last sign of life from the worker; a stale one means it was interrupted",
     )
 
-    # Course content sent by the Moodle plugin (widget/views.py). Such documents are managed
-    # by the plugin, searched only for students on that course's pages, and kept out of the
-    # workspace's own document list, upload limit and duplicate check.
-    moodle_course_id = models.PositiveIntegerField(
-        "Moodle course", null=True, blank=True, db_index=True,
-        help_text="Set for course content sent by the Moodle plugin; empty for uploaded documents",
-    )
-    moodle_key = models.CharField(max_length=100, blank=True, help_text="The plugin's ID for the item, e.g. cm:42")
-    moodle_version = models.CharField(max_length=64, blank=True, help_text="Changes when the item does in Moodle")
+    # Content sent by a connected app (integrations.api), e.g. a Moodle course's activities or
+    # an Odoo site's pages. Such documents are managed by the app and kept out of the
+    # workspace's own document list, upload limit and duplicate check. A named scope is
+    # searched only for users the app signs in to that scope; the shared scope ("") adds to
+    # the workspace's knowledge for everyone.
+    integration = models.ForeignKey("integrations.Integration", null=True, blank=True, on_delete=models.CASCADE,
+                                    related_name="documents",
+                                    help_text="The app that sent it; empty for uploaded documents")
+    scope = models.CharField(max_length=100, blank=True, db_index=True,
+                             help_text='e.g. "course:12"; blank = shared with the whole workspace')
+    item_key = models.CharField(max_length=100, blank=True, help_text="The app's ID for the item, e.g. cm:42")
+    item_version = models.CharField(max_length=64, blank=True, help_text="Changes when the item does in the app")
 
     class Meta:
         ordering = ["-created_at"]
         constraints = [
-            models.UniqueConstraint(fields=["tenant", "sha256"], condition=models.Q(moodle_course_id__isnull=True),
+            models.UniqueConstraint(fields=["tenant", "sha256"], condition=models.Q(integration__isnull=True),
                                     name="rag_unique_document_per_tenant"),
-            models.UniqueConstraint(fields=["tenant", "moodle_course_id", "moodle_key"],
-                                    condition=models.Q(moodle_course_id__isnull=False),
-                                    name="rag_unique_moodle_item"),
+            models.UniqueConstraint(fields=["integration", "scope", "item_key"],
+                                    condition=models.Q(integration__isnull=False),
+                                    name="rag_unique_app_item"),
         ]
 
     def __str__(self):

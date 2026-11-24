@@ -51,16 +51,18 @@ MOODLE_TOOLS = {"get_my_grades": "grades", "get_my_completion": "completion", "g
 
 
 class StudentTools:
-    """Moodle lookups for one signed-in student in one course."""
+    """Moodle lookups for one signed-in student in one course (the workspace's Moodle
+    integration, integrations.tools.MoodleTool)."""
 
-    def __init__(self, widget, student: dict, token: str):
+    def __init__(self, integration, student: dict, token: str):
         self.url = student["site"].rstrip("/") + "/local/saaschat/student.php"
-        self.code = widget.moodle_shared_code
+        self.code = integration.secret
         self.token = token
 
     @staticmethod
-    def available(widget, student: dict | None) -> bool:
-        return bool(widget.moodle_enabled and widget.moodle_courses and widget.moodle_student_tools and student
+    def available(widget, integration, student: dict | None) -> bool:
+        """Only to the student's own Moodle site, and only if it is an allowed website."""
+        return bool(integration.enabled and integration.content and integration.tools and student
                     and student.get("course") and student.get("site") and widget.allows_site(student["site"]))
 
     async def lookup(self, tool: str) -> tuple[dict, int]:

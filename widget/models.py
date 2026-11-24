@@ -6,7 +6,6 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from llm import crypto
 from tenants.models import Tenant
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -42,17 +41,14 @@ class Widget(models.Model):
         RIGHT = "right", "Bottom right"
         LEFT = "left", "Bottom left"
 
-    class ChunkStorage(models.TextChoices):
-        SAASCHAT = "saaschat", "saaschat only"
-        MIRROR = "mirror", "saaschat + copy in Moodle"
-
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="widget")
     enabled = models.BooleanField(default=False)
     public_key = models.CharField(max_length=64, unique=True, default=new_key, editable=False)
     title = models.CharField(max_length=60, default="Ask us")
     greeting = models.CharField(
         max_length=300, default="Hi {name}! Ask me anything about our documents.",
-        help_text="{name} becomes the visitor's name when the Moodle plugin passes it, otherwise \"Guest\".",
+        help_text="{name} becomes the visitor's name when a connected app (Moodle, your website) signs them "
+                  "in, otherwise \"Guest\".",
     )
     accent_color = models.CharField(max_length=7, default="#2a78d6", validators=[_hex_color])
     position = models.CharField(max_length=8, choices=Position.choices, default=Position.RIGHT)
@@ -63,30 +59,6 @@ class Widget(models.Model):
     rate_limit_per_minute = models.PositiveSmallIntegerField(
         default=10, help_text="Messages per minute from one visitor IP address.",
     )
-    # Moodle integration (set in Django admin).
-    moodle_enabled = models.BooleanField(
-        "Moodle integration", default=False,
-        help_text="Let the saaschat Moodle plugin sign in students and copy document passages.",
-    )
-    moodle_shared_code_encrypted = models.TextField(blank=True, editable=False)
-    chunk_storage = models.CharField(
-        max_length=16, choices=ChunkStorage.choices, default=ChunkStorage.SAASCHAT,
-        help_text="Search always runs in saaschat. With a copy in Moodle, the plugin downloads the "
-                  "document passages to the Moodle database every hour.",
-    )
-    moodle_courses = models.BooleanField(
-        "Course content", default=False,
-        help_text="Let the plugin send course content (activities, files, forum posts and dates) so students "
-                  "on a course's pages get answers from that course only.",
-    )
-    moodle_student_tools = models.BooleanField(
-        "Student data tools", default=False,
-        help_text="On a course's pages, let the assistant look up the asking student's own grades, completion and "
-                  "deadlines in Moodle when their question needs them (\"what is my grade?\", \"what do I need to "
-                  "complete this course?\"). Needs Course content above, the plugin's \"Students' own grades, "
-                  "completion and deadlines\" setting, and a chat model that can use tools. Each lookup adds a "
-                  "model round.",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -94,8 +66,8 @@ class Widget(models.Model):
         return f"Widget for {self.tenant}"
 
     def allows_site(self, url: str) -> bool:
-        """Whether a Moodle address is on one of the allowed websites (so saaschat only ever
-        calls back to the customer's own site)."""
+        """Whether an app's address (e.g. a Moodle site from its token) is on one of the allowed
+        websites, so saaschat only ever calls back to the customer's own site."""
         from urllib.parse import urlsplit
 
         parts = urlsplit(url or "")
@@ -111,17 +83,7 @@ class Widget(models.Model):
                 return True
         return False
 
-    def save(self, *args, **kwargs):
-        if self.moodle_enabled and not self.moodle_shared_code_encrypted:
-            self.regenerate_moodle_shared_code()
-        super().save(*args, **kwargs)
 
-    @property
-    def moodle_shared_code(self) -> str:
-        return crypto.decrypt(self.moodle_shared_code_encrypted)
-
-    def regenerate_moodle_shared_code(self):
-        self.moodle_shared_code_encrypted = crypto.encrypt(secrets.token_urlsafe(32))
 
     def domains(self) -> list[str]:
         return list(dict.fromkeys(

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ integration.name }} · Integrations · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}"><link rel="stylesheet" href="{% static 'rag/brainmap.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+{% include "integrations/_head.html" %}
+<main class="ws-main embed bm">
+  <div class="page-head"><h1>Knowledge base</h1></div>
+  {% include "rag/_tabs.html" with tab="integrations" %}
+  <a class="bm-back" href="{% url 'integrations_admin:index' tenant_slug=tenant.slug %}">&larr; All integrations</a>
+  {% if messages %}<ul class="flash" role="status">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>{% endif %}
+
+  <section aria-labelledby="status-h">
+    <h2 id="status-h" class="section-h">{{ integration.name }}
+      {% if integration.enabled %}<span class="pill ready">On</span>{% else %}<span class="pill">Off</span>{% endif %}
+    </h2>
+    <p class="embed-note">{{ integration.get_kind_display }} · last contact {% if integration.last_seen_at %}{{ integration.last_seen_at|timesince }} ago{% else %}never{% endif %}</p>
+  </section>
+
+  <section aria-labelledby="creds-h">
+    <h2 id="creds-h" class="section-h">Connection details</h2>
+    {% if integration.kind == "moodle" %}
+      <p class="embed-note">In Moodle: Site administration › Plugins › Local plugins › saaschat. Enter the widget key and the shared code below.</p>
+      <div class="snippet"><textarea readonly rows="1" aria-label="Widget key" spellcheck="false">{{ widget.public_key|default:"(enable the widget on the Embed tab first)" }}</textarea><button type="button" class="btn" data-copy>Copy</button></div>
+      <p class="embed-note">Widget key ↑ · Shared code ↓</p>
+    {% else %}
+      <p class="embed-note">The app calls <code>{{ api_base }}</code> with <code>Authorization: Bearer &lt;secret&gt;</code>, and signs its users with the secret, naming this key as issuer (<code>"iss"</code>).</p>
+      <div class="snippet"><textarea readonly rows="1" aria-label="API address" spellcheck="false">{{ api_base }}</textarea><button type="button" class="btn" data-copy>Copy</button></div>
+      <p class="embed-note">API address ↑ · Key: <code>{{ integration.key }}</code> · Secret ↓</p>
+    {% endif %}
+    <details>
+      <summary class="embed-note" style="cursor: pointer">Show the {% if integration.kind == "moodle" %}shared code{% else %}secret{% endif %}</summary>
+      <div class="snippet"><textarea readonly rows="1" aria-label="Secret" spellcheck="false">{{ integration.secret }}</textarea><button type="button" class="btn" data-copy>Copy</button></div>
+    </details>
+    <form method="post" data-confirm="Generate a new secret? The app stops working until you give it the new one.">
+      {% csrf_token %}<input type="hidden" name="action" value="regenerate">
+      <button type="submit" class="link-btn danger">Generate a new secret</button>
+    </form>
+  </section>
+
+  <section aria-labelledby="settings-h">
+    <h2 id="settings-h" class="section-h">Settings</h2>
+    <form method="post" class="card-form" novalidate>
+      {% csrf_token %}<input type="hidden" name="action" value="save">
+      {% include "integrations/_fields.html" %}
+      <div class="form-actions"><button type="submit" class="btn">Save</button></div>
+    </form>
+  </section>
+
+  {% if integration.kind == "app" %}
+  <section aria-labelledby="tools-h">
+    <h2 id="tools-h" class="section-h">Tools the app offers <span class="count">{{ tools|length }}</span></h2>
+    {% if tools %}
+      <div class="table-wrap"><table class="docs">
+        <thead><tr><th scope="col">Tool</th><th scope="col">Kind</th><th scope="col">For</th><th scope="col">What it does</th></tr></thead>
+        <tbody>{% for t in tools %}<tr><td><code>{{ t.name }}</code></td><td>{% if t.kind == "action" %}<span class="chip warn">changes things</span>{% else %}<span class="chip">looks up</span>{% endif %}</td><td class="muted">{% if t.needs_user %}signed-in users{% else %}everyone{% endif %}</td><td>{{ t.description }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% if not integration.tools %}<p class="embed-note">Turn on <strong>Tools</strong> above to let the assistant use them.</p>{% endif %}
+      {% if not integration.site_url %}<p class="embed-note">Enter the app's address above: tools are called there.</p>{% endif %}
+    {% else %}
+      <p class="embed-note">None yet. The app describes its tools by sending them to <code>{{ api_base }}manifest/</code>.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section aria-labelledby="content-h">
+    <h2 id="content-h" class="section-h">Content from the app <span class="count">{{ scopes|length }}</span></h2>
+    {% if scopes %}
+      <div class="table-wrap"><table class="docs">
+        <thead><tr><th scope="col">Scope</th><th scope="col" class="num">Items</th><th scope="col" class="num">Searchable</th><th scope="col" class="num">Failed</th></tr></thead>
+        <tbody>{% for s in scopes %}<tr><td>{% if s.scope %}<code>{{ s.scope }}</code>{% else %}Shared with everyone{% endif %}</td><td class="num">{{ s.items }}</td><td class="num">{{ s.ready }}</td><td class="num{% if s.failed %} bad{% endif %}">{{ s.failed }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <p class="embed-note">Content in a named scope (e.g. a Moodle course) answers only users the app signs in to that scope. Shared content adds to the workspace's knowledge for everyone.</p>
+    {% else %}
+      <p class="embed-note">Nothing yet.{% if not integration.content %} Turn on <strong>Content from the app</strong> to accept it.{% endif %}</p>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="delete-h">
+    <h2 id="delete-h" class="section-h">Disconnect</h2>
+    <p class="embed-note">Stops the app working with this workspace and deletes the content it sent. Type <strong>{{ integration.name }}</strong> to confirm.</p>
+    <form method="post" class="card-form">
+      {% csrf_token %}<input type="hidden" name="action" value="delete">
+      <div class="field"><label for="confirm">Integration name</label><input id="confirm" name="confirm" autocomplete="off"></div>
+      <div class="form-actions"><button type="submit" class="link-btn danger">Disconnect and delete its content</button></div>
+    </form>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    document.querySelectorAll("[data-copy]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var area = btn.previousElementSibling;
+        area.select();
+        (navigator.clipboard ? navigator.clipboard.writeText(area.value) : Promise.reject()).catch(function () {
+          document.execCommand("copy");
+        }).then(function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1500); });
+      });
+    });
+    document.querySelectorAll("form[data-confirm]").forEach(function (f) {
+      f.addEventListener("submit", function (e) { if (!confirm(f.dataset.confirm)) e.preventDefault(); });
+    });
+  })();
+</script>
+{% endblock %}

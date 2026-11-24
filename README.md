@@ -164,9 +164,19 @@ files take a moment. Duplicate files (same content) are rejected per workspace.
 Files are stored under `MEDIA_ROOT/rag/<slug>/` and are never served over HTTP.
 Scanned PDFs without a text layer fail with a clear message; they need OCR.
 
+## Integrations (connected apps)
+
+Admin → **Integrations** connects the apps a workspace's users already work in: Moodle, a website
+such as Odoo or WordPress, or a custom app. Each gets a key and a secret, and can be allowed to sign
+in its users (greeted by name, own conversations), send content (into named scopes such as a course
+or a client account, answered only to users signed in to that scope, or shared with everyone),
+offer tools the assistant calls back on (e.g. look up an order), and copy the workspace's passages.
+The protocol (tokens, the `/i/<key>/` API, tool manifests and signed callbacks) is in
+`docs/integrations.md`. Django admin → Integrations lists every workspace's connections.
+
 ## Moodle student data tools
 
-With a Moodle widget's **Student data tools** on (Django admin → Website widgets), the assistant
+With **Tools** on for a workspace's Moodle integration (Admin → Integrations), the assistant
 becomes an agent on a course's pages: the chat model can call `get_my_grades`,
 `get_my_completion`, `get_my_deadlines` (looked up in Moodle as the asking student, through the
 plugin) and `search_course`, for up to 4 rounds, before answering. Its instructions are the

@@ -1,5 +1,6 @@
 """Semantic search over a workspace's document chunks."""
 from dataclasses import asdict, dataclass
+from typing import NamedTuple
 
 import numpy as np
 from django.conf import settings
@@ -35,52 +36,58 @@ class Results(list):
     best_score: float | None = None
 
 
-# The Moodle plugin names each course's overview "<course name>: course overview and schedule".
+# The Moodle plugin names each course's overview "<course name>: course overview and schedule";
+# other apps may send an "overview" item named after their scope.
 OVERVIEW_KEY, OVERVIEW_SUFFIX = "overview", ": course overview and schedule"
-# Passages always taken from the page a Moodle student is viewing, so "this module" is answerable.
+# Passages always taken from the page a user is viewing, so "this module" is answerable.
 PAGE_PASSAGES = 2
+
+
+class Scope(NamedTuple):
+    """Content an app sent for one scope, e.g. a Moodle course ("course:12")."""
+    integration_id: int
+    name: str
 
 
 @dataclass
 class Place:
-    """Where a Moodle student is: the course's name and the activity page they're viewing."""
+    """Where a signed-in user is: the scope's title (e.g. the course) and the page they're viewing."""
     course: str = ""
     page: str = ""
     page_document_id: int | None = None
 
 
-async def moodle_place(tenant, course, activity=None) -> Place:
-    """The course and page names for a student on a Moodle course's pages (blank when unknown,
-    e.g. the course hasn't been sent yet or the activity isn't shown to every student)."""
+async def app_place(tenant, scope: Scope | None, page_key: str = "") -> Place:
+    """The scope's title and the viewed page's name (blank when unknown, e.g. not sent yet)."""
     place = Place()
-    if course is None:
+    if scope is None:
         return place
-    docs = Document.objects.filter(tenant=tenant, moodle_course_id=course, status=Document.Status.READY)
-    overview = await docs.filter(moodle_key=OVERVIEW_KEY).only("name").afirst()
+    docs = Document.objects.filter(tenant=tenant, status=Document.Status.READY).filter(_scope(scope))
+    overview = await docs.filter(item_key=OVERVIEW_KEY).only("name").afirst()
     if overview:
         place.course = overview.name.removesuffix(OVERVIEW_SUFFIX)
-    if activity:
-        page = await docs.filter(moodle_key=f"cm:{activity}").only("id", "name").afirst()
+    if page_key:
+        page = await docs.filter(item_key=page_key).only("id", "name").afirst()
         if page:
             place.page, place.page_document_id = page.name, page.id
     return place
 
 
-def _searchable(tenant, config, course=None):
+def _searchable(tenant, config, scope: Scope | None = None):
     """Chunks of ready documents embedded with the current embedding configuration: the
-    workspace's own documents, or with ``course`` (a Moodle course ID) that course's content."""
+    workspace's own documents and apps' shared content, or with ``scope`` that scope's content."""
     return Chunk.objects.filter(
         tenant=tenant,
         document__status=Document.Status.READY,
         document__embed_signature=embed_signature(config),
-        **_scope(course, "document__"),
-    )
+    ).filter(_scope(scope, "document__"))
 
 
-def _scope(course, prefix=""):
-    if course is None:
-        return {f"{prefix}moodle_course_id__isnull": True}
-    return {f"{prefix}moodle_course_id": course}
+def _scope(scope: Scope | None, prefix: str = "") -> Q:
+    if scope is None:
+        return Q(**{f"{prefix}integration__isnull": True}) | Q(**{
+            f"{prefix}scope": "", f"{prefix}integration__enabled": True, f"{prefix}integration__content": True})
+    return Q(**{f"{prefix}integration_id": scope.integration_id, f"{prefix}scope": scope.name})
 
 
 class KB:
@@ -91,19 +98,19 @@ class KB:
     NEEDS_REINDEX = "needs_reindex"           # documents exist, embedded differently
 
 
-async def kb_status(tenant, course=None) -> str:
+async def kb_status(tenant, scope=None) -> str:
     config = await llm.aget_config()
     if not config.embed_model:
         return KB.NO_EMBEDDING_MODEL
-    if await _searchable(tenant, config, course).aexists():
+    if await _searchable(tenant, config, scope).aexists():
         return KB.READY
-    if await Document.objects.filter(tenant=tenant, status=Document.Status.READY, **_scope(course)).aexists():
+    if await Document.objects.filter(tenant=tenant, status=Document.Status.READY).filter(_scope(scope)).aexists():
         return KB.NEEDS_REINDEX
     return KB.NO_DOCUMENTS
 
 
-async def has_documents(tenant, course=None) -> bool:
-    return await kb_status(tenant, course) == KB.READY
+async def has_documents(tenant, scope=None) -> bool:
+    return await kb_status(tenant, scope) == KB.READY
 
 
 async def embed_queries(queries: list[str]) -> list[list[float]]:
@@ -113,7 +120,7 @@ async def embed_queries(queries: list[str]) -> list[list[float]]:
 
 
 async def search(tenant, queries: list[str], top_k: int | None = None,
-                 min_score: float | None = None, query_vectors=None, course=None,
+                 min_score: float | None = None, query_vectors=None, scope=None,
                  page_document=None, trace: dict | None = None) -> list[Passage]:
     """Return the passages that answer ``queries``, best first (hybrid search).
 
@@ -127,8 +134,8 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
     Passages matching more of the question's terms rank first, then by
     similarity. Raises llm.LLMError if the query cannot be embedded.
 
-    ``course`` (a Moodle course ID) searches that course's content instead of the
-    workspace's documents. ``page_document``: the course item the student is viewing; its
+    ``scope`` (an app's content scope, e.g. a Moodle course) searches that content instead of
+    the workspace's documents and apps' shared content. ``page_document``: the course item the student is viewing; its
     PAGE_PASSAGES best passages come first whatever their score, so questions like "what is
     this module about?" are answered from it.
 
@@ -144,7 +151,7 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
 
     config = await llm.aget_config()
     min_score = config.doc_cutoff if min_score is None else min_score
-    rows = [r async for r in _searchable(tenant, config, course).values_list("id", "embedding", "dimensions")]
+    rows = [r async for r in _searchable(tenant, config, scope).values_list("id", "embedding", "dimensions")]
     if not rows:
         return []
 
@@ -173,13 +180,13 @@ async def search(tenant, queries: list[str], top_k: int | None = None,
     by_meaning = set(best)
     by_keywords = set()
     for cid in await _keyword_candidates(tenant, config, queries, limit=top_k * 3, threshold=cfg.keyword_min_coverage,
-                                         course=course):
+                                         scope=scope):
         if cid in score_of:
             by_keywords.add(cid)
             best.setdefault(cid, score_of[cid])
     page_ids = []
     if page_document is not None:
-        in_page = [cid async for cid in _searchable(tenant, config, course).filter(document_id=page_document)
+        in_page = [cid async for cid in _searchable(tenant, config, scope).filter(document_id=page_document)
                    .values_list("id", flat=True)]
         page_ids = sorted((c for c in in_page if c in score_of), key=lambda c: -score_of[c])[:PAGE_PASSAGES]
     strong_at = strong_threshold(config, cfg, min_score)
@@ -267,7 +274,7 @@ def keyword_coverage(query_terms: list[set], text: str) -> float:
     return max(len(t & chunk_terms) / len(t) for t in query_terms)
 
 
-async def _keyword_candidates(tenant, config, queries, limit, threshold, course=None) -> list[int]:
+async def _keyword_candidates(tenant, config, queries, limit, threshold, scope=None) -> list[int]:
     """Chunk IDs containing at least ``threshold`` (keyword search coverage) of a query's terms."""
     if threshold <= 0:
         return []
@@ -278,7 +285,7 @@ async def _keyword_candidates(tenant, config, queries, limit, threshold, course=
     prefilter = Q()
     for term in set().union(*query_terms):
         prefilter |= Q(text__icontains=term[:4] if len(term) > 4 else term)
-    rows = [r async for r in _searchable(tenant, config, course).filter(prefilter).values_list("id", "text")[:500]]
+    rows = [r async for r in _searchable(tenant, config, scope).filter(prefilter).values_list("id", "text")[:500]]
     ranked = []
     for cid, text in rows:
         best = keyword_coverage(query_terms, text)

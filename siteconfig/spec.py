@@ -68,6 +68,9 @@ SPECS = [
     Spec("student_tools_prompt", TEXT, WORDING, "Instructions: Moodle student tools", _s("RAG_STUDENT_TOOLS_PROMPT"),
          True, "Added to the system prompt when the assistant can look up a Moodle student's own grades, "
                "completion and deadlines (website widget > Student data tools)."),
+    Spec("app_tools_prompt", TEXT, WORDING, "Instructions: app tools", _s("RAG_APP_TOOLS_PROMPT"), True,
+         "Added to the system prompt when connected apps offer tools (e.g. order lookup on your website). "
+         "Moodle's student tools use their own instructions above."),
     Spec("no_answer_message", LINE, WORDING, "Not in the documents", _s("RAG_NO_ANSWER_MESSAGE"), True,
          "Reply when the documents don't cover a question. " + PLACEHOLDERS),
     Spec("empty_kb_message", LINE, WORDING, "No documents yet", _s("RAG_EMPTY_KB_MESSAGE"), True, PLACEHOLDERS),

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Integrations · {{ tenant.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'rag/admin.css' %}"><link rel="stylesheet" href="{% static 'rag/brainmap.css' %}">{% endblock %}
+{% block body_class %}ws-admin{% endblock %}
+
+{% block layout %}
+{% include "integrations/_head.html" %}
+<main class="ws-main embed bm">
+  <div class="page-head">
+    <h1>Knowledge base</h1>
+    <p>Connect the apps your users already work in. A connected app can sign in its users (greeted by name, with their own conversations), send content for the assistant to answer from, and offer tools the assistant can use, such as looking up a student's grades or a customer's order.</p>
+  </div>
+  {% include "rag/_tabs.html" with tab="integrations" %}
+  {% if messages %}<ul class="flash" role="status">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>{% endif %}
+
+  <section aria-labelledby="conn-h">
+    <h2 id="conn-h" class="section-h">Connected apps <span class="count">{{ rows|length }}</span></h2>
+    {% if rows %}
+      <div class="table-wrap">
+        <table class="docs">
+          <thead><tr><th scope="col">App</th><th scope="col">Type</th><th scope="col">Allowed</th><th scope="col" class="num">Content</th><th scope="col" class="num">Last contact</th></tr></thead>
+          <tbody>
+            {% for i in rows %}
+              <tr>
+                <td class="name"><a href="{% url 'integrations_admin:detail' tenant_slug=tenant.slug pk=i.pk %}">{{ i.name }}</a>{% if not i.enabled %} <span class="chip">off</span>{% endif %}</td>
+                <td class="muted">{{ i.get_kind_display }}</td>
+                <td class="bm-chips">{% if i.signed_users %}<span class="chip ok">users</span>{% endif %}{% if i.content %}<span class="chip ok">content</span>{% endif %}{% if i.tools %}<span class="chip ok">tools</span>{% endif %}{% if i.share_documents %}<span class="chip ok">copies passages</span>{% endif %}</td>
+                <td class="num">{{ i.items }} item{{ i.items|pluralize }}{% if i.scopes %} · {{ i.scopes }} scope{{ i.scopes|pluralize }}{% endif %}</td>
+                <td class="num muted">{% if i.last_seen_at %}{{ i.last_seen_at|timesince }} ago{% else %}never{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="embed-note">No apps connected yet.</p>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="new-h">
+    <h2 id="new-h" class="section-h">Connect an app</h2>
+    <p class="embed-note">You'll get a key and a secret to give the app (for Moodle, the saaschat plugin; for a website such as Odoo or WordPress, its saaschat module or your developer). The developer guide describes everything an app can do.</p>
+    <form method="post" class="card-form" novalidate>
+      {% csrf_token %}
+      {% include "integrations/_fields.html" %}
+      <div class="form-actions"><button type="submit" class="btn">Connect</button></div>
+    </form>
+  </section>
+</main>
+{% endblock %}

@@ -55,7 +55,7 @@ def validate_upload(name: str, size: int, policy) -> str:
 
 async def check_capacity(tenant, policy) -> int:
     """Remaining document slots; raises UploadRejected when the workspace is full."""
-    used = await Document.objects.filter(tenant=tenant, moodle_course_id__isnull=True).acount()
+    used = await Document.objects.filter(tenant=tenant, integration__isnull=True).acount()
     remaining = policy.max_documents - used
     if remaining <= 0:
         raise UploadRejected(
@@ -85,7 +85,7 @@ async def store(tenant, name: str, data: bytes) -> Document:
     ext = validate_upload(name, len(data), policy)
     digest = hashlib.sha256(data).hexdigest()
 
-    existing = await Document.objects.filter(tenant=tenant, sha256=digest, moodle_course_id__isnull=True).afirst()
+    existing = await Document.objects.filter(tenant=tenant, sha256=digest, integration__isnull=True).afirst()
     if existing:
         raise UploadRejected(f"{name}: already uploaded as “{existing.name}”")
     try:
@@ -102,34 +102,35 @@ async def store(tenant, name: str, data: bytes) -> Document:
 COURSE_ITEM_EXTENSIONS = ("md",)  # the plugin sends activity text as Markdown
 
 
-def course_item_extensions(policy) -> tuple:
-    """File types the Moodle plugin may send: the workspace's upload types, plus Markdown."""
+def app_item_extensions(policy) -> tuple:
+    """File types apps may send: the workspace's upload types, plus Markdown."""
     return tuple(dict.fromkeys(policy.extensions + COURSE_ITEM_EXTENSIONS))
 
 
-async def store_course_item(tenant, course_id: int, key: str, version: str, name: str, filename: str,
-                            data: bytes) -> Document:
-    """Save (or replace) one item of a Moodle course as a Processing document.
+async def store_app_item(integration, scope: str, key: str, version: str, name: str, filename: str,
+                         data: bytes) -> Document:
+    """Save (or replace) one item an app sent, as a Processing document.
 
-    Course items don't count toward the workspace's document limit and may repeat
-    files used elsewhere. A replaced item's old passages are removed at once.
-    Raises UploadRejected for a disallowed type, an empty or oversized file.
+    App items don't count toward the workspace's document limit and may repeat files used
+    elsewhere. A replaced item's old passages are removed at once. Raises UploadRejected for
+    a disallowed type, an empty or oversized file.
     """
+    tenant = integration.tenant
     policy = tenant.upload_policy
     ext = file_extension(filename)
-    if ext not in course_item_extensions(policy):
+    if ext not in app_item_extensions(policy):
         raise UploadRejected(f"{filename}: file type not accepted")
     if not data:
         raise UploadRejected(f"{filename}: file is empty")
     if len(data) > policy.max_file_bytes:
         raise UploadRejected(f"{filename}: larger than the {policy.max_file_mb} MB limit")
     filename = PurePath(filename).name[:200] or f"item.{ext}"
-    async for old in Document.objects.filter(tenant=tenant, moodle_course_id=course_id, moodle_key=key):
+    async for old in Document.objects.filter(integration=integration, scope=scope, item_key=key):
         await delete_document(old)
     document = Document(
         tenant=tenant, name=name[:255] or filename, extension=ext, size=len(data),
-        sha256=hashlib.sha256(data).hexdigest(), moodle_course_id=course_id, moodle_key=key,
-        moodle_version=version[:64],
+        sha256=hashlib.sha256(data).hexdigest(), integration=integration, scope=scope, item_key=key,
+        item_version=version[:64],
     )
     await sync_to_async(document.file.save)(filename, ContentFile(data), save=True)
     return document
@@ -275,7 +276,7 @@ def _remove_empty_dirs(directory: Path) -> None:
 async def report(tenant) -> Report:
     ready = Q(status=Document.Status.READY)
     signature = embed_signature(await llm.aget_config())
-    stats = await Document.objects.filter(tenant=tenant, moodle_course_id__isnull=True).aaggregate(
+    stats = await Document.objects.filter(tenant=tenant, integration__isnull=True).aaggregate(
         documents=Count("id", filter=ready),
         stale=Count("id", filter=ready & ~Q(embed_signature=signature)),
         failed=Count("id", filter=Q(status=Document.Status.FAILED)),
@@ -285,7 +286,7 @@ async def report(tenant) -> Report:
     )
     # Count the chunks that actually exist, so the report can never drift from the index.
     chunks = await Chunk.objects.filter(tenant=tenant, document__status=Document.Status.READY,
-                                        document__moodle_course_id__isnull=True).acount()
+                                        document__integration__isnull=True).acount()
     return Report(
         documents=stats["documents"],
         chunks=chunks,

@@ -34,6 +34,8 @@
   if (user.sub) {  // each student's chat kept apart from guests and others on a shared computer
     convKey += ":u" + String(user.sub);
     if (user.course) convKey += ":c" + String(user.course);  // and each course's chat from the others
+    else if (user.scope) convKey += ":s" + String(user.scope);  // (any app's scope, e.g. a client account)
+    if (user.iss) convKey += ":i" + String(user.iss);
     conversationId = load(convKey);
   }
 

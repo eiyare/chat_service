@@ -9,6 +9,7 @@ from chat.models import Conversation, Message
 STATUS_LABELS = {"pass": "Passed on", "hit": "Answered here", "miss": "Nothing found", "skip": "Skipped",
                  "fail": "Problem", "info": "Context"}
 _MOODLE = re.compile(r"^moodle-user-0*(\d+)(?:-c(\d+))?$")
+_APP = re.compile(r"^app\.(\d+)\.(.+?)(?:\.s[0-9a-f]{12})?$")
 LONG_TEXT = 160
 
 
@@ -37,6 +38,12 @@ def who(conversation) -> str:
     m = _MOODLE.match(conversation.visitor_id or "")
     if m:
         return f"Moodle user {m.group(1)}" + (f" · course {m.group(2)}" if m.group(2) else "")
+    m = _APP.match(conversation.visitor_id or "")
+    if m:
+        from integrations.models import Integration
+
+        app = Integration.objects.filter(pk=m.group(1)).values_list("name", flat=True).first()
+        return f"{app or 'App'} user {m.group(2)}"
     return "Website visitor"
 
 

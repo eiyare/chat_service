@@ -72,10 +72,3 @@ def visitor_id(user: dict) -> str:
     Each course gets its own conversations (pass a user dict without "course" for general ones)."""
     base = f"moodle-user-{user['id'].zfill(8)}"
     return f"{base}-c{user['course']}" if user.get("course") else base
-
-
-def check_shared_code(widget, request) -> bool:
-    """Server-to-server calls from the plugin send `Authorization: Bearer <shared code>`."""
-    code = widget.moodle_shared_code
-    sent = request.headers.get("Authorization", "")
-    return bool(code) and sent.startswith("Bearer ") and hmac.compare_digest(sent[7:].encode(), code.encode())

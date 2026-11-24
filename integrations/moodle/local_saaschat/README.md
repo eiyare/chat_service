@@ -6,16 +6,20 @@ and can keep a copy of the workspace's document passages in the Moodle database.
 
 Moodle 4.0 or later.
 
-## saaschat side (Django admin → Website widgets → the workspace)
+## saaschat side (the workspace's Admin)
 
-1. Make sure the widget is enabled and the Moodle site's domain is in **Allowed websites**.
-2. Under **Moodle**, tick **Moodle integration** and save. A **Shared code** appears.
-3. Choose **Chunk storage**: *saaschat only*, or *saaschat + copy in Moodle*.
-4. To answer from course content, tick **Course content**.
-5. To let the assistant look up students' own grades, completion and deadlines, also tick
-   **Student data tools** (see below).
-6. Put `{name}` in the greeting where the user's name should go, e.g. `Hi {name}! …`
+1. **Embed** tab: make sure the widget is enabled and the Moodle site's domain is in **Allowed
+   websites**. Put `{name}` in the greeting where the user's name should go, e.g. `Hi {name}! …`
    (visitors who aren't signed in see "Guest").
+2. **Integrations** tab → **Connect an app**: type *Moodle*. Its page shows the widget key and the
+   **shared code** to enter in Moodle.
+3. On that page, tick what Moodle may do:
+   - **Signed-in users**: students greeted by name, with their own conversations;
+   - **Content from the app**: course content, so students get answers from their course;
+   - **Tools**: look up students' own grades, completion and deadlines (see below);
+   - **Let the app copy passages**: the passage copy into Moodle.
+
+(Moodle is one of several apps a workspace can connect; see `docs/integrations.md`.)
 
 ## Moodle side
 
@@ -67,7 +71,7 @@ To send the content now instead of waiting:
 
 ## Students' own grades, completion and deadlines
 
-With **Student data tools** ticked in saaschat and **Students' own grades, completion and deadlines**
+With **Tools** ticked on the Moodle integration in saaschat and **Students' own grades, completion and deadlines**
 ticked in the plugin settings, the assistant on a course's pages can answer questions such as
 "what is my grade?", "what do I still need to complete this course?" or "what's due this week?".
 It decides for itself what to look up, possibly several things in turn, from these tools:
@@ -101,5 +105,5 @@ map says so. Completion answers need completion tracking turned on in the course
 With *saaschat + copy in Moodle*, the scheduled task "Copy saaschat document passages" fills
 the `local_saaschat_chunks` table every hour. Search still runs in saaschat.
 
-To rotate the shared code, use the "Regenerate the Moodle shared code" action in Django admin
-and paste the new code into the plugin settings.
+To rotate the shared code, use "Generate a new secret" on the Moodle integration's page (Admin →
+Integrations) and paste the new code into the plugin settings.

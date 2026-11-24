@@ -18,7 +18,6 @@ from django.views.decorators.http import require_GET, require_POST
 
 import llm
 from rag import faq, retrieval
-from widget import student_tools as student_tools_lib
 from siteconfig import conf
 from tenants.decorators import tenant_required
 
@@ -178,14 +177,17 @@ def grounding_prompt(cfg, no_answer: str | None = None) -> str:
     return conf.fill(prompt, cfg).replace("{no_answer}", no_answer or conf.fill(cfg.no_answer_message, cfg))
 
 
-def grounded_question(question: str, passages, lang: str = "en", place=None, today=None, tools=False) -> str:
+def grounded_question(question: str, passages, lang: str = "en", place=None, today=None, tools=False,
+                      moodle=True) -> str:
     """The user's question wrapped with the retrieved passages it must be answered from, and,
-    for a Moodle student (``place``), the course and page they are on and today's date."""
+    for a user signed in by an app (``place``), where they are (e.g. the Moodle course and
+    page) and today's date. ``moodle``: Moodle wording (student, course) rather than generic."""
     blocks = [f"[{n}] (source: {p.document})\n{p.text}" for n, p in enumerate(passages, 1)]
     situation = []
     if place is not None and (place.course or place.page):
         if place.course:
-            situation.append(f'The student is in the course "{place.course}".')
+            situation.append(f'The student is in the course "{place.course}".' if moodle
+                             else f'The user is in "{place.course}".')
         if place.page:
             situation.append(f'They are viewing "{place.page}": "this module", "this page" or "this activity" '
                              "means that one.")
@@ -195,10 +197,12 @@ def grounded_question(question: str, passages, lang: str = "en", place=None, tod
                    "but take facts only from the context passages above.")
     if tools:
         instruction = ("Use the conversation so far to work out what the question refers to. Take facts only "
-                       "from the context passages and from what the tools return; use the tools for anything "
-                       "about the student's own grades, completion or deadlines, or to search the course.")
+                       "from the context passages and from what the tools return; " + (
+                           "use the tools for anything about the student's own grades, completion or deadlines, "
+                           "or to search the course." if moodle else
+                           "use the tools for anything the passages don't cover that a tool can look up."))
         if not blocks:
-            blocks = ["(No course passages matched the question; use the tools.)"]
+            blocks = ["(No passages matched the question; use the tools.)"]
     if lang == "pcm":
         instruction += " The question is in Nigerian Pidgin English: answer in Nigerian Pidgin English."
     context = ("\n".join(situation) + "\n\n") if situation else ""
@@ -212,17 +216,17 @@ async def api_send(request):
     return await respond(request, request.tenant, user=request.user)
 
 
-async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None, course=None,
-                  activity=None, student_tools=None):
+async def respond(request, tenant, source=Conversation.Source.APP, visitor_id="", user=None, visitor=None,
+                  toolset=None):
     """Answer a question strictly from the workspace's documents, streamed as NDJSON.
 
     Shared by the workspace chat and the website widget (source/visitor_id scope
     which conversations the caller may continue; the widget always uses the
-    default model). ``course``: a student on a Moodle course's pages, answered
-    from that course's content only (no workspace documents or FAQs); ``activity``: the
-    course module they are viewing, whose passages are always included; ``student_tools``:
-    their Moodle lookups (widget.student_tools.StudentTools), which make the model an agent
-    that can look up their own grades, completion and deadlines and search the course.
+    default model). ``visitor``: a user signed in by a connected app (integrations.identity);
+    in a scope (e.g. a Moodle course) they're answered from that scope's content only (no
+    workspace documents or FAQs), and the page they're viewing is always included.
+    ``toolset``: the tools apps offer for this reply (integrations.tools), which make the model
+    an agent, e.g. to look up a student's grades or a customer's orders.
 
     1. Retrieve the most relevant document chunks for the question.
     2. If none are relevant enough, reply with a fixed "not in the documents"
@@ -296,17 +300,22 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             answer = await (conversation.messages.filter(role=Message.Role.ASSISTANT, id__gt=previous.id)
                             .exclude(content="").alast())
             previous_answer = _CITATION.sub("", answer.content) if answer else None
-    place = await retrieval.moodle_place(tenant, course, activity)
-    kb_status = await retrieval.kb_status(tenant, course)
-    faqs = [] if course is not None else await faq.enabled_for(tenant)
+    scope = (retrieval.Scope(visitor.integration.pk, visitor.scope)
+             if visitor is not None and visitor.scope else None)
+    moodle = visitor is None or visitor.integration.kind == "moodle"
+    place = await retrieval.app_place(tenant, scope, visitor.page if visitor else "")
+    kb_status = await retrieval.kb_status(tenant, scope)
+    faqs = [] if scope is not None else await faq.enabled_for(tenant)
     trace.add("context", "Context", "info",
               "Follow-up to an earlier question" if previous_text else
               ("First question in this conversation" if conversation is None else "No earlier question to build on"),
               earlier_question=previous_text, earlier_answer=excerpt(previous_answer) if previous_answer else None,
-              moodle_course=(place.course or f"#{course}") if course is not None else None,
-              moodle_page=place.page or (f"activity #{activity}" if activity else None),
-              searching="this course's content only" if course is not None else "the workspace's documents and FAQs",
-              knowledge_base=_KB_LABELS.get(kb_status, kb_status), faqs=len(faqs) if course is None else None)
+              signed_in_by=f"{visitor.integration.name} (user {visitor.user_id})" if visitor else None,
+              scope=(place.course or scope.name) if scope is not None else None,
+              page=place.page or (visitor.page if visitor and visitor.page else None),
+              searching=("this scope's content only" if scope is not None
+                         else "the workspace's documents, apps' shared content and FAQs"),
+              knowledge_base=_KB_LABELS.get(kb_status, kb_status), faqs=len(faqs) if scope is None else None)
     passages = retrieval.Results()
     faq_hit = None
     retrieval_ms = None
@@ -319,7 +328,8 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         trace.add("faq_exact", "FAQ: same question", "skip", "Small talk")
     elif not faqs:
         trace.add("faq_exact", "FAQ: same question", "skip",
-                  "FAQs aren't used on Moodle course pages" if course is not None else "The workspace has no FAQs")
+                  "FAQs aren't used inside an app's scope (e.g. a Moodle course)" if scope is not None
+                  else "The workspace has no FAQs")
     else:
         trace.add("faq_exact", "FAQ: same question", "hit" if faq_hit else "miss",
                   f'Same wording as the FAQ "{faq_hit.faq.question}"' if faq_hit
@@ -367,7 +377,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
                 # 3. Document search, plus close FAQs as extra context for the model.
                 if kb_status == retrieval.KB.READY:
                     t = trace.clock()
-                    passages = await retrieval.search(tenant, queries, query_vectors=query_vectors, course=course,
+                    passages = await retrieval.search(tenant, queries, query_vectors=query_vectors, scope=scope,
                                                       page_document=place.page_document_id, trace=search_trace)
                     trace.add("search", "Document search", "pass" if passages else "miss",
                               _search_summary(passages, search_trace), trace.since(t), **_search_detail(search_trace))
@@ -467,9 +477,10 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
             "retrieval_ms": retrieval_ms, "history_messages": len(history), "attempts": attempts,
             "error": error.summary() if error else None,
         }
-        if course is not None:
-            info["moodle"] = {"course": course, "activity": activity, "course_name": place.course,
-                              "page": place.page}
+        if visitor is not None:
+            info["app"] = {"integration": visitor.integration.name, "user": visitor.user_id, "scope": visitor.scope,
+                           "scope_title": place.course, "page": place.page or visitor.page,
+                           "tools": [d["function"]["name"] for d in toolset.definitions()] if toolset else []}
         logger.debug("chat reply details tenant=%s conversation=%s %s", tenant.slug, conversation.pk,
                      json.dumps(info, default=str))
         return _ndjson({"type": "debug", "debug": info})
@@ -489,7 +500,7 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
 
     token_policy = tenant.token_policy
 
-    use_tools = student_tools is not None and course is not None
+    use_tools = bool(toolset)
 
     async def run_tool(call) -> str:
         """Run one tool call for the model; returns what the model is given back. The brain map
@@ -501,47 +512,50 @@ async def respond(request, tenant, source=Conversation.Source.APP, visitor_id=""
         except ValueError:
             args = {}
         t = trace.clock()
-        if name == "search_course":
+        if name == toolset.search_name:
             query = str(args.get("query") or "").strip()[:300]
             if not query:
-                trace.add("tool", "Tool: search_course", "fail", "No search words given", trace.since(t))
+                trace.add("tool", f"Tool: {name}", "fail", "No search words given", trace.since(t))
                 return json.dumps({"error": "Give the words to search for."})
             try:
-                found = await retrieval.search(tenant, [query], course=course)
+                found = await retrieval.search(tenant, [query], scope=scope)
             except llm.LLMError as exc:
-                trace.add("tool", "Tool: search_course", "fail", str(exc), trace.since(t), query=query)
-                return json.dumps({"error": "The course search failed."})
+                trace.add("tool", f"Tool: {name}", "fail", str(exc), trace.since(t), query=query)
+                return json.dumps({"error": "The search failed."})
             known = {p.chunk_id for p in passages}
             new = [p for p in found if p.chunk_id not in known]
             sources.extend(p.as_source(n) for n, p in enumerate(new, len(passages) + 1))
             passages.extend(new)
             number = {p.chunk_id: n for n, p in enumerate(passages, 1)}
-            trace.add("tool", "Tool: search_course", "pass" if found else "miss",
+            trace.add("tool", f"Tool: {name}", "pass" if found else "miss",
                       f'"{query}": {len(found)} passage{"s" if len(found) != 1 else ""}', trace.since(t), query=query,
                       passages=[f"[{number[p.chunk_id]}] {p.document} (similarity {p.score:.2f})" for p in found])
             return "\n\n".join(f"[{number[p.chunk_id]}] (source: {p.document})\n{p.text}" for p in found) \
                 or "No passages found."
-        if name in student_tools_lib.MOODLE_TOOLS:
-            data, ms = await student_tools.lookup(name)
-            inner = data.get("data") if isinstance(data, dict) else None
-            failed = not isinstance(data, dict) or data.get("error") or (isinstance(inner, dict) and inner.get("error"))
-            trace.add("tool", f"Tool: {name}", "fail" if failed else "pass", student_tools_lib.outline(name, data), ms,
-                      note="The student's data went to the model only; it isn't stored here.")
-            return student_tools_lib.result_text(data)
+        tool = toolset.tools.get(name)
+        if tool is not None:
+            result = await tool.call(args)
+            trace.add("tool", f"Tool: {name}", "pass" if result.ok else "fail", result.outline, result.ms,
+                      app=getattr(getattr(tool, "integration", None), "name", None) or "Moodle",
+                      kind="action (changes something)" if result.action else None,
+                      arguments=json.dumps(args, ensure_ascii=False)[:500] if args else None,
+                      note="What the tool returned went to the model only; it isn't stored here.")
+            return result.text
         trace.add("tool", f"Tool: {name}", "fail", "The model asked for a tool that doesn't exist", 0)
         return json.dumps({"error": f"There is no tool called {name}."})
 
     async def model_reply():
         system = grounding_prompt(cfg, no_answer)
         if use_tools:
-            system += "\n\n" + conf.fill(cfg.student_tools_prompt, cfg)
-        question = grounded_question(text, passages, lang, place, timezone.localdate(), tools=use_tools)
+            system += "\n\n" + conf.fill(cfg.student_tools_prompt if toolset.moodle else cfg.app_tools_prompt, cfg)
+        question = grounded_question(text, passages, lang, place, timezone.localdate(), tools=use_tools,
+                                     moodle=moodle)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": question}]
-        tools = student_tools_lib.DEFINITIONS if use_tools else None
+        tools = toolset.definitions() if use_tools else None
         trace.add("prompt", "Prompt", "pass",
                   f"{len(passages)} passage{'s' if len(passages) != 1 else ''} and {len(history)} earlier "
                   f"message{'s' if len(history) != 1 else ''} sent to {llm_config.label(model)}"
-                  + (", with student data tools" if tools else ""),
+                  + (", with tools" if tools else ""),
                   grounding_mode=cfg.grounding_mode, temperature=cfg.temperature,
                   max_output_tokens=token_policy.max_output_tokens, retries_allowed=cfg.provider_retries,
                   tools=[d["function"]["name"] for d in tools] if tools else None,

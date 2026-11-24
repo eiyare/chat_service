@@ -23,8 +23,10 @@ urlpatterns = [
     path("accounts/password/", auth_views.PasswordChangeView.as_view(), name="password_change"),
     path("accounts/password/done/", auth_views.PasswordChangeDoneView.as_view(), name="password_change_done"),
     path(f"{tenant_prefix}chat/", include("chat.urls")),
+    path(f"{tenant_prefix}admin/integrations/", include("integrations.workspace_urls")),
     path(f"{tenant_prefix}admin/", include("rag.urls")),
     path(tenant_prefix, include("tenants.urls")),
     path("w/<str:key>/", include("widget.urls")),
+    path("i/<str:key>/", include("integrations.urls")),
     path("", include("portal.urls")),
 ]

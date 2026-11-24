@@ -18,6 +18,19 @@ from . import moodle
 from .models import Widget
 
 V1 = "visitor-aaaaaaaaaaaaaaaa"
+
+
+def moodle_integration(tenant, **flags):
+    """The workspace's Moodle connection (integrations), as the old widget settings were."""
+    from integrations.models import Integration
+
+    return Integration.objects.create(tenant=tenant, kind="moodle", name="Moodle", **flags)
+
+
+def moodle_set(integration, **flags):
+    from integrations.models import Integration
+
+    Integration.objects.filter(pk=integration.pk).update(**flags)
 V2 = "visitor-bbbbbbbbbbbbbbbb"
 
 
@@ -198,10 +211,10 @@ class MoodleTests(TestCase):
         llm.invalidate()
         cache.clear()
         self.t = Tenant.objects.create(name="Acme", slug="acme")
-        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com",
-                                       moodle_enabled=True)
+        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com")
+        self.m = moodle_integration(self.t)
         FAQ.objects.create(tenant=self.t, question="What are your opening hours?", answer="9 to 5, Monday to Friday.")
-        self.code = self.w.moodle_shared_code
+        self.code = self.m.secret
         self.base = f"/w/{self.w.public_key}/"
 
     def post(self, path, visitor=V1, **body):
@@ -213,11 +226,9 @@ class MoodleTests(TestCase):
         async_to_sync(_read)(resp)
         return Conversation.objects.latest("pk")
 
-    def test_shared_code_generated_when_turned_on_and_encrypted(self):
+    def test_shared_code_generated_and_encrypted(self):
         self.assertEqual(len(self.code), 43)
-        self.assertNotIn(self.code, self.w.moodle_shared_code_encrypted)
-        off = Widget.objects.create(tenant=Tenant.objects.create(name="B", slug="b"))
-        self.assertEqual(off.moodle_shared_code, "")
+        self.assertNotIn(self.code, self.m.secret_encrypted)
 
     def test_token_verification(self):
         token = moodle.sign_user(self.code, 42, "Ada Lovelace")
@@ -256,7 +267,7 @@ class MoodleTests(TestCase):
 
     def test_bad_token_or_integration_off_means_guest(self):
         self.assertEqual(self.ask(user_token="forged.token").visitor_id, V1)
-        Widget.objects.filter(pk=self.w.pk).update(moodle_enabled=False)
+        moodle_set(self.m, enabled=False)
         self.assertEqual(self.ask(user_token=moodle.sign_user(self.code, 42, "Ada")).visitor_id, V1)
 
     def test_guests_cannot_claim_a_student_visitor_id(self):
@@ -275,7 +286,7 @@ class MoodleTests(TestCase):
         self.assertEqual(self.client.get(docs_url, HTTP_AUTHORIZATION="Bearer wrong").status_code, 403)
         self.assertEqual(self.client.get(docs_url, **auth).status_code, 409)  # storage is "saaschat only"
 
-        Widget.objects.filter(pk=self.w.pk).update(chunk_storage=Widget.ChunkStorage.MIRROR)
+        moodle_set(self.m, share_documents=True)
         listing = self.client.get(docs_url, **auth).json()["documents"]
         self.assertEqual([d["name"] for d in listing], ["handbook.md"])
         chunks = self.client.get(f"{docs_url}{doc.pk}/chunks/", **auth).json()["chunks"]
@@ -287,7 +298,7 @@ class MoodleTests(TestCase):
                                           status=Document.Status.READY)
         self.assertEqual(self.client.get(f"{docs_url}{foreign.pk}/chunks/", **auth).status_code, 404)
 
-        Widget.objects.filter(pk=self.w.pk).update(moodle_enabled=False)
+        moodle_set(self.m, enabled=False)
         self.assertEqual(self.client.get(docs_url, **auth).status_code, 404)
 
     def test_greeting_default_has_name_placeholder(self):
@@ -305,10 +316,10 @@ class MoodleCourseTests(TestCase):
         llm.invalidate()
         cache.clear()
         self.t = Tenant.objects.create(name="Acme", slug="acme")
-        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com",
-                                       moodle_enabled=True, moodle_courses=True)
+        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com")
+        self.m = moodle_integration(self.t, content=True)
         FAQ.objects.create(tenant=self.t, question="What are your opening hours?", answer="9 to 5, Monday to Friday.")
-        self.code = self.w.moodle_shared_code
+        self.code = self.m.secret
         self.base = f"/w/{self.w.public_key}/moodle/courses/"
         self.auth = {"HTTP_AUTHORIZATION": f"Bearer {self.code}"}
 
@@ -322,15 +333,16 @@ class MoodleCourseTests(TestCase):
     def search(self, question, course=None):
         from rag import retrieval
 
-        return [p.document for p in async_to_sync(retrieval.search)(self.t, [question], course=course, min_score=0.5)]
+        scope = retrieval.Scope(self.m.pk, f"course:{course}") if course else None
+        return [p.document for p in async_to_sync(retrieval.search)(self.t, [question], scope=scope, min_score=0.5)]
 
     def test_requires_shared_code_and_course_content_on(self):
         self.assertEqual(self.client.get(self.base).status_code, 403)
         self.assertEqual(self.put_item(7, "cm:1", "x", HTTP_AUTHORIZATION="Bearer wrong").status_code, 403)
-        Widget.objects.filter(pk=self.w.pk).update(moodle_courses=False)
+        moodle_set(self.m, content=False)
         self.assertEqual(self.client.get(self.base, **self.auth).status_code, 409)
         self.assertEqual(self.put_item(7, "cm:1", "x").status_code, 409)
-        Widget.objects.filter(pk=self.w.pk).update(moodle_enabled=False)
+        moodle_set(self.m, enabled=False)
         self.assertEqual(self.client.get(self.base, **self.auth).status_code, 404)
 
     def test_items_added_listed_replaced_and_removed(self):
@@ -343,12 +355,12 @@ class MoodleCourseTests(TestCase):
         self.assertEqual(listing["items"], {"cm:1": "v1", "cm:2": "v1"})
         self.assertIn("md", listing["extensions"])
 
-        doc = Document.objects.get(moodle_course_id=7, moodle_key="cm:1")
+        doc = Document.objects.get(scope="course:7", item_key="cm:1")
         self.assertEqual((doc.status, doc.name), (Document.Status.READY, "Week 1 (Page)"))
 
         self.put_item(7, "cm:1", "Late work loses 5% a day.", version="v2", name="Week 1 (Page)")
-        self.assertEqual(Document.objects.filter(moodle_course_id=7, moodle_key="cm:1").count(), 1)
-        self.assertIn("5%", Chunk.objects.get(document__moodle_key="cm:1", document__moodle_course_id=7).text)
+        self.assertEqual(Document.objects.filter(scope="course:7", item_key="cm:1").count(), 1)
+        self.assertIn("5%", Chunk.objects.get(document__item_key="cm:1", document__scope="course:7").text)
 
         resp = self.client.post(f"{self.base}7/items/delete/", json.dumps({"keys": ["cm:2", "cm:99"]}),
                                 content_type="application/json", **self.auth)
@@ -370,7 +382,7 @@ class MoodleCourseTests(TestCase):
         self.assertEqual(self.search("late work"), [])  # the workspace chat never sees course content
         # Not in the workspace's document list, limit or passage copy.
         self.assertNotContains(self.client.get("/t/acme/admin/"), "Course 7 rules")
-        Widget.objects.filter(pk=self.w.pk).update(chunk_storage=Widget.ChunkStorage.MIRROR)
+        moodle_set(self.m, share_documents=True)
         copy = self.client.get(f"/w/{self.w.public_key}/moodle/documents/", **self.auth).json()
         self.assertEqual(copy["documents"], [])
 
@@ -426,7 +438,7 @@ class MoodleCourseTests(TestCase):
         self.assertIn("Page the user is viewing: Module 3 (Page)", rewrite[1]["content"])
 
     def test_course_ignored_when_course_content_off(self):
-        Widget.objects.filter(pk=self.w.pk).update(moodle_courses=False)
+        moodle_set(self.m, content=False)
         conv, events = self.ask(moodle.sign_user(self.code, 42, "Ada", course=7))
         self.assertEqual(conv.visitor_id, "moodle-user-00000042")
         self.assertTrue(events[-1]["faq"])
@@ -450,9 +462,9 @@ class StudentToolsTests(TestCase):
         llm.invalidate()
         cache.clear()
         self.t = Tenant.objects.create(name="Acme", slug="acme")
-        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com",
-                                       moodle_enabled=True, moodle_courses=True, moodle_student_tools=True)
-        self.code = self.w.moodle_shared_code
+        self.w = Widget.objects.create(tenant=self.t, enabled=True, allowed_domains="moodle.acme.com")
+        self.m = moodle_integration(self.t, content=True, tools=True)
+        self.code = self.m.secret
         self.calls, self.lookups = [], []
 
     def token(self, site="https://moodle.acme.com", course=7):
@@ -497,10 +509,10 @@ class StudentToolsTests(TestCase):
         self.assertNotIn("68.00", stored)
 
     def test_tools_only_when_switched_on_and_for_the_students_own_site(self):
-        Widget.objects.filter(pk=self.w.pk).update(moodle_student_tools=False)
+        moodle_set(self.m, tools=False)
         _, reply = self.ask(self.token())
         self.assertEqual(reply.outcome, Message.Outcome.UNAVAILABLE)  # as before: no course content
-        Widget.objects.filter(pk=self.w.pk).update(moodle_student_tools=True)
+        moodle_set(self.m, tools=True)
         for token in (self.token(site="https://evil.example.com"), self.token(site=""), self.token(course=None)):
             self.calls.clear()
             self.ask(token)
@@ -545,7 +557,7 @@ class StudentToolsTests(TestCase):
             sent.update(url=url, json=json, headers=headers)
             return FakeResponse()
 
-        tools = StudentTools(self.w, {"site": "https://moodle.acme.com/"}, "the-token")
+        tools = StudentTools(self.m, {"site": "https://moodle.acme.com/"}, "the-token")
         with mock.patch("httpx.AsyncClient.post", post):
             data, _ = async_to_sync(tools.lookup)("get_my_completion")
         self.assertEqual(sent["url"], "https://moodle.acme.com/local/saaschat/student.php")
