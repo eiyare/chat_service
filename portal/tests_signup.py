@@ -35,8 +35,11 @@ class LandingTests(TestCase):
 
 
 class SignupAndCreateTests(TestCase):
+    """Creating chatbots after sign-up; email confirmation is covered in tests_verification."""
+
     def setUp(self):
         cache.clear()
+        platform(require_email_verification=False)
         conf.invalidate()
 
     def signup(self, username="ada", email="ada@example.com", **extra):
@@ -70,7 +73,7 @@ class SignupAndCreateTests(TestCase):
         self.assertEqual(Tenant.objects.count(), 1)
 
     def test_limit_is_an_admin_setting_and_superusers_are_unlimited(self):
-        platform(free_chatbots_per_account=2)
+        platform(free_chatbots_per_account=2, require_email_verification=False)
         self.signup()
         for name in ("One", "Two", "Three"):
             self.client.post("/create/", {"workspace_name": name, "chatbot_name": "Tosin"})

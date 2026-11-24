@@ -11,11 +11,14 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
+from portal.forms import PortalAuthenticationForm
+
 tenant_prefix = f"{settings.TENANT_URL_PREFIX}/<slug:tenant_slug>/"
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("accounts/login/", auth_views.LoginView.as_view(redirect_authenticated_user=True), name="login"),
+    path("accounts/login/", auth_views.LoginView.as_view(redirect_authenticated_user=True,
+                                                         authentication_form=PortalAuthenticationForm), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("accounts/password/", auth_views.PasswordChangeView.as_view(), name="password_change"),
     path("accounts/password/done/", auth_views.PasswordChangeDoneView.as_view(), name="password_change_done"),

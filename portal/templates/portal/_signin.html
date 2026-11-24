@@ -1,7 +1,10 @@
 <form class="card signin" method="post" action="{% url 'login' %}" novalidate>
   {% csrf_token %}
   <h2>Sign in</h2>
-  {% if login_form.non_field_errors %}<p class="error" role="alert">Your username and password didn't match. Please try again.</p>{% endif %}
+  {% if login_form.unconfirmed_user %}
+    {% for e in login_form.non_field_errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+    <p class="muted small" style="margin: 0">No email? <a href="{% url 'portal:verify_resend' %}">Send a new link</a></p>
+  {% elif login_form.non_field_errors %}<p class="error" role="alert">Your username and password didn't match. Please try again.</p>{% endif %}
   <label for="id_username">Username</label>
   <input type="text" name="username" id="id_username" autocomplete="username" required value="{{ login_form.username.value|default:'' }}">
   <label for="id_password">Password</label>

@@ -1,0 +1,8 @@
+<form class="card formcard" method="post" action="{% url 'portal:verify_resend' %}" novalidate>
+  {% csrf_token %}
+  <div class="field">
+    <label for="resend-email">Email address</label>
+    <input type="email" name="email" id="resend-email" autocomplete="email" required value="{{ email }}">
+  </div>
+  <button class="btn primary block" type="submit">Send a new link</button>
+</form>

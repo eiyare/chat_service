@@ -1,0 +1,9 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Send a new confirmation link · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="narrow">
+  <h1>Confirm your email</h1>
+  <p class="lead">Enter the email address you signed up with and we'll send a new confirmation link.</p>
+  {% include "portal/_resend_form.html" %}
+</section>
+{% endblock %}

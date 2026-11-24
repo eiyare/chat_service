@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -34,3 +35,27 @@ class Enquiry(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()}: {self.name} ({self.organisation or self.email})"
+
+
+class EmailVerification(models.Model):
+    """An account created through sign-up waits here (inactive) until its owner clicks the
+    link emailed to them. Accounts without a row (staff-made, or from before verification)
+    count as verified."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="email_verification")
+    email = models.EmailField(help_text="The address the link was sent to")
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True, help_text="When the latest link was sent")
+    sends = models.PositiveSmallIntegerField(default=0, help_text="Links sent so far")
+    send_error = models.CharField(max_length=500, blank=True, help_text="Why the latest email failed, if it did")
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} ({'confirmed' if self.verified_at else 'waiting'})"
+
+    @property
+    def pending(self) -> bool:
+        return self.verified_at is None

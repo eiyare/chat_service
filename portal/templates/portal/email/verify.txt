@@ -1,0 +1,10 @@
+{% autoescape off %}Hi {{ user.get_username }},
+
+Please confirm your email address to finish creating your {{ site_name }} account:
+
+{{ link }}
+
+The link works for {{ hours }} hours. If you didn't sign up for {{ site_name }}, you can ignore this email: the account won't be activated.
+
+{{ site_name }}
+{% endautoescape %}

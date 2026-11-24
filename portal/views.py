@@ -38,6 +38,7 @@ def _plan():
         "types": d.default_allowed_file_types.upper().replace(",", ", "),
         "chatbots": d.free_chatbots_per_account,
         "signup": d.allow_signup,
+        "verify": d.require_email_verification,
     }
 
 
@@ -74,6 +75,20 @@ def _signup_rate_ok(request) -> bool:
         return True
 
 
+PENDING_KEY = "pending_verification"  # session: the account that just signed up, for "send it again"
+RESENDS_PER_IP_PER_HOUR = 5
+
+
+def _resend_rate_ok(request) -> bool:
+    key = f"verify-rl:{client_ip(request)}:{int(time.time() // 3600)}"
+    if cache.add(key, 1, timeout=3700):
+        return True
+    try:
+        return cache.incr(key) <= RESENDS_PER_IP_PER_HOUR
+    except ValueError:
+        return True
+
+
 @login_not_required
 @require_http_methods(["GET", "POST"])
 def signup(request):
@@ -90,6 +105,13 @@ def signup(request):
             form.add_error(None, "Too many sign-ups from your network. Please try again later.")
         elif form.is_valid():
             user = form.save()
+            if conf.get().require_email_verification:
+                from . import verification
+
+                verification.purge_unconfirmed()
+                verification.start(user, request)
+                request.session[PENDING_KEY] = user.pk
+                return redirect("portal:check_email")
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             messages.success(request, "Welcome! Your account is ready. Now create your free chatbot.")
             return redirect("portal:create")
@@ -201,3 +223,74 @@ def contact_thanks(request):
 
     demo = request.session.pop("enquiry_kind", "") == Enquiry.Kind.DEMO
     return render(request, "portal/contact_thanks.html", {"demo": demo, "plan": _plan()})
+
+
+@login_not_required
+@require_http_methods(["GET", "POST"])
+def check_email(request):
+    """After sign-up: "check your inbox", with a button to send the link again."""
+    from django.contrib.auth import get_user_model
+
+    from . import verification
+    from .forms import masked
+
+    user = get_user_model().objects.filter(pk=request.session.get(PENDING_KEY)).first()
+    record = verification.pending(user) if user else None
+    if record is None:
+        return redirect("portal:verify_resend")
+    if request.method == "POST":
+        if not verification.can_resend(record) or not _resend_rate_ok(request):
+            messages.info(request, "We've just sent a link. Please wait a minute before asking for another.")
+        elif verification.send(record, request):
+            messages.success(request, "We've sent a new link.")
+        else:
+            messages.error(request, "We couldn't send the email just now. Please try again in a few minutes.")
+        return redirect("portal:check_email")
+    return render(request, "portal/check_email.html", {
+        "email": masked(record.email), "failed": bool(record.send_error), "plan": _plan(),
+        "hours": conf.get().verification_link_hours,
+    })
+
+
+@login_not_required
+def verify_email(request, token):
+    """The link in the email: confirms the address, activates the account and signs in."""
+    from . import verification
+
+    user, problem = verification.read_token(token, conf.get().verification_link_hours)
+    record = verification.pending(user) if user else None
+    if user is not None and record is None and user.is_active:
+        messages.info(request, "Your email address is already confirmed.")
+        return redirect("portal:create" if request.user.is_authenticated else "portal:home")
+    if record is None or problem:
+        return render(request, "portal/verify_failed.html", {
+            "expired": problem == "expired" and record is not None, "plan": _plan(),
+            "email": record.email if (record and problem == "expired") else "",
+        }, status=400)
+    verification.confirm(user)
+    request.session.pop(PENDING_KEY, None)
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    messages.success(request, "Thanks, your email address is confirmed. Now create your free chatbot.")
+    return redirect("portal:create")
+
+
+@login_not_required
+@require_http_methods(["GET", "POST"])
+def verify_resend(request):
+    """Ask for a new link by email address. The answer is the same whether or not an account
+    is waiting for that address, so it can't be used to find out who has an account."""
+    from django.contrib.auth import get_user_model
+
+    from . import verification
+
+    email = (request.POST.get("email") or request.GET.get("email") or "").strip()
+    if request.method == "POST":
+        if not _resend_rate_ok(request):
+            messages.error(request, "Too many requests from your network. Please try again later.")
+            return redirect("portal:verify_resend")
+        user = get_user_model().objects.filter(email__iexact=email, is_active=False).first() if email else None
+        record = verification.pending(user) if user else None
+        if record is not None and verification.can_resend(record):
+            verification.send(record, request)
+        return render(request, "portal/verify_resent.html", {"plan": _plan()})
+    return render(request, "portal/verify_resend.html", {"email": email, "plan": _plan()})

@@ -50,6 +50,27 @@ traffic and proxies are all Platform settings.
   account* (default 1; superusers are not limited). Free workspaces use the
   *Workspace defaults* limits.
 
+
+### Email confirmation
+
+With **Confirm email addresses at sign-up** on (Platform settings → Site and sign-up; default on),
+a new account stays inactive until its owner clicks the link emailed to them; then they're signed
+in and taken to create their chatbot. The link is signed, names the address it was sent to, and
+lasts **Confirmation links last (hours)** (48). Links point at **Public address** (e.g.
+`https://saaschat.tech`; blank uses the request's address, which behind a proxy may be wrong).
+
+- After sign-up a "Check your email" page can send the link again (once a minute).
+- `/verify/resend/` sends a new link by email address, with the same answer whether or not an
+  account is waiting, so it can't reveal who has an account.
+- Signing in before confirming (with the right password) says so and offers a new link.
+- Signing up again with an address still waiting for confirmation offers a new link.
+- Accounts never confirmed are deleted after **Delete unconfirmed accounts after (days)** (7;
+  0 keeps them), unless they own a workspace; checked hourly on sign-up, or run
+  `manage.py purge_unconfirmed`.
+- Django admin → Portal → **Email verifications** lists them, with "Email the confirmation link
+  again" and "Confirm selected accounts now".
+- Accounts made in Django admin, and accounts from before this, are not affected.
+
 ## Accounts and access
 
 Every page requires login (`/accounts/login/`), except the public website

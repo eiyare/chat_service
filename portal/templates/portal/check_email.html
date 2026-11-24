@@ -1,0 +1,18 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Confirm your email · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="narrow">
+  <p class="eyebrow mono">Step 1 of 2</p>
+  <h1>Check your email</h1>
+  {% if failed %}
+    <p class="lead">We couldn't send the confirmation email to {{ email }}. Please try again in a few minutes.</p>
+  {% else %}
+    <p class="lead">We've sent a link to <strong>{{ email }}</strong>. Click it to confirm your address and finish creating your account. It works for {{ hours }} hours.</p>
+  {% endif %}
+  <div class="card formcard">
+    <p class="muted small" style="margin: 0">Nothing arrived? Check your spam folder, or send it again.</p>
+    <form method="post">{% csrf_token %}<button class="btn ghost block" type="submit">Send the link again</button></form>
+    <p class="muted small" style="margin: 0">Wrong address? <a href="{% url 'portal:signup' %}">Sign up again</a> with the right one.</p>
+  </div>
+</section>
+{% endblock %}

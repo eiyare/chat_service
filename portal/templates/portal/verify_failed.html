@@ -1,0 +1,9 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Link not valid · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="narrow">
+  <h1>{% if expired %}This link has expired{% else %}This link doesn't work{% endif %}</h1>
+  <p class="lead">{% if expired %}Confirmation links only work for a limited time. We can send you a new one.{% else %}It may have been copied incompletely, or the account's email address has changed. Ask for a new link below.{% endif %}</p>
+  {% include "portal/_resend_form.html" %}
+</section>
+{% endblock %}

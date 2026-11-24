@@ -64,6 +64,15 @@ class PlatformSettings(models.Model):
                 validate_email(self.helpdesk_email.strip())
             except ValidationError:
                 errors["helpdesk_email"] = "Enter one email address, e.g. helpdesk@yourcompany.com."
+        site_url = (getattr(self, "site_url", "") or "").strip()
+        if site_url:
+            from urllib.parse import urlsplit
+
+            parts = urlsplit(site_url)
+            if parts.scheme not in ("http", "https") or not parts.hostname or parts.path not in ("", "/"):
+                errors["site_url"] = "Enter the address only, e.g. https://saaschat.tech."
+            else:
+                self.site_url = site_url.rstrip("/")
         if getattr(self, "email_from", ""):
             from email.utils import parseaddr
 

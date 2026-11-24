@@ -1,0 +1,9 @@
+{% extends "portal/_layout.html" %}
+{% block title %}Check your email · {{ SITE_NAME }}{% endblock %}
+{% block main %}
+<section class="narrow">
+  <h1>Check your email</h1>
+  <p class="lead">If an account is waiting to be confirmed for that address, we've sent it a new link. Check your spam folder too.</p>
+  <p class="muted small"><a href="{% url 'portal:home' %}#signin">Back to sign in</a></p>
+</section>
+{% endblock %}

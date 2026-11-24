@@ -155,6 +155,16 @@ SPECS = [
          help="The platform's name on the public site, in page titles and in emails."),
     Spec("sidebar_limit", INT, SIGNUP, "Chats listed in the sidebar", _s("CHAT_SIDEBAR_LIMIT"), min=5, max=500,
          help="How many of a user's recent chats the workspace chat lists."),
+    Spec("site_url", LINE, SIGNUP, "Public address", lambda: "", optional=True,
+         help="The site's address as visitors see it, e.g. https://saaschat.tech. Used for links in emails "
+              "(such as confirming an email address). Blank: the address the request came in on, which behind a "
+              "proxy may be http:// or an internal name."),
+    Spec("require_email_verification", BOOL, SIGNUP, "Confirm email addresses at sign-up", lambda: True,
+         help="New accounts stay inactive until their owner clicks a link emailed to them. Needs the Email (SMTP) "
+              "settings. Accounts made in Django admin are not affected."),
+    Spec("verification_link_hours", INT, SIGNUP, "Confirmation links last (hours)", lambda: 48, min=1, max=720),
+    Spec("unverified_account_days", INT, SIGNUP, "Delete unconfirmed accounts after (days)", lambda: 7, min=0,
+         max=365, help="Frees their usernames and email addresses. 0 keeps them."),
     Spec("allow_signup", BOOL, SIGNUP, "Allow sign-up", _s("PORTAL_SIGNUP_ENABLED"),
          help="Anyone can create an account from the home page and create free chatbots."),
     Spec("free_chatbots_per_account", INT, SIGNUP, "Free chatbots per account", _s("PORTAL_FREE_CHATBOTS_PER_ACCOUNT"),

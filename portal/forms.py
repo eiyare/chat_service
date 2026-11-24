@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth import get_user_model
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 
 from .models import Enquiry
 
@@ -14,9 +14,18 @@ class SignupForm(UserCreationForm):
         model = get_user_model()
         fields = ("username", "email")
 
+    pending_email = False  # set when the address belongs to an account still waiting for confirmation
+
     def clean_email(self):
+        from .verification import pending
+
         email = self.cleaned_data["email"].strip().lower()
-        if get_user_model().objects.filter(email__iexact=email).exists():
+        existing = get_user_model().objects.filter(email__iexact=email).first()
+        if existing is not None:
+            if pending(existing):
+                self.pending_email = True
+                raise forms.ValidationError("An account with this email is waiting to be confirmed. Check your "
+                                            "inbox for the link, or ask for a new one.")
             raise forms.ValidationError("An account with this email already exists. Sign in instead.")
         return email
 
@@ -84,3 +93,32 @@ class ContactForm(forms.ModelForm):
         if data.get("kind") == Enquiry.Kind.CONTACT and not (data.get("message") or "").strip():
             self.add_error("message", "Tell us how we can help.")
         return data
+
+
+def masked(email: str) -> str:
+    """a***@example.com: enough to recognise, not enough to harvest."""
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "your email address"
+
+
+class PortalAuthenticationForm(AuthenticationForm):
+    """Sign-in that tells someone with an unconfirmed account (right password) to confirm
+    their email, instead of "wrong username or password"."""
+
+    unconfirmed_user = None
+
+    def clean(self):
+        try:
+            return super().clean()
+        except forms.ValidationError:
+            from .verification import pending
+
+            username, password = self.cleaned_data.get("username"), self.cleaned_data.get("password")
+            User = get_user_model()
+            user = User.objects.filter(**{f"{User.USERNAME_FIELD}__iexact": username}).first() if username else None
+            if user is not None and not user.is_active and pending(user) and user.check_password(password or ""):
+                self.unconfirmed_user = user
+                raise forms.ValidationError(
+                    f"Please confirm your email address first: we sent a link to {masked(user.email)}.",
+                    code="unconfirmed")
+            raise

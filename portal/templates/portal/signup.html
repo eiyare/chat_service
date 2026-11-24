@@ -4,7 +4,7 @@
 <section class="narrow">
   <p class="eyebrow mono">Step 1 of 2</p>
   <h1>Create your account</h1>
-  <p class="lead">Then create your free chatbot. No card needed.</p>
+  <p class="lead">Then {% if plan.verify %}confirm your email and {% endif %}create your free chatbot. No card needed.</p>
   <form class="card formcard" method="post" novalidate>
     {% csrf_token %}
     {% for e in form.non_field_errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
@@ -16,6 +16,7 @@
           <label for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
           {% for e in field.errors %}<p class="error">{{ e }}</p>{% endfor %}
+          {% if field.name == "email" and form.pending_email %}<p class="small"><a href="{% url 'portal:verify_resend' %}?email={{ field.value|urlencode }}">Send me a new link</a></p>{% endif %}
           {% if field.name == "password1" %}<p class="muted small">At least 8 characters, not too common, not all numbers.</p>{% endif %}
         </div>
       {% endif %}
